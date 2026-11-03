@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'bills.dart';
 import 'categorize.dart';
 import 'db.dart';
 import 'insights.dart';
@@ -124,18 +127,36 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _tab = 0;
+  late final StreamSubscription<void> _reminders;
+  final _dueBills = watchDueBillCount();
+
+  @override
+  void initState() {
+    super.initState();
+    _reminders = keepRemindersScheduled();
+  }
+
+  @override
+  void dispose() {
+    _reminders.cancel();
+    super.dispose();
+  }
 
   Future<void> _logout() async {
-    if (!await logout() && mounted) {
-      showMessage(context, 'Masih ada data yang belum tersinkron. Sambungkan internet dulu, lalu coba lagi.');
+    if (!await logout()) {
+      if (mounted) {
+        showMessage(context, 'Masih ada data yang belum tersinkron. Sambungkan internet dulu, lalu coba lagi.');
+      }
+      return;
     }
+    await scheduleReminders(const []); // the next user on this phone must not get this user's bills
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(const ['Transaksi', 'Akun', 'Budget', 'Laporan'][_tab]),
+        title: Text(const ['Transaksi', 'Akun', 'Tagihan', 'Budget', 'Laporan'][_tab]),
         actions: [
           StreamBuilder(
             stream: db.statusStream,
@@ -152,21 +173,32 @@ class _HomePageState extends State<HomePage> {
           IconButton(icon: const Icon(Icons.logout), tooltip: 'Keluar', onPressed: _logout),
         ],
       ),
-      body: const [RecordsTab(), AccountsTab(), BudgetsTab(), ReportTab()][_tab],
-      floatingActionButton: _tab == 3
+      body: const [RecordsTab(), AccountsTab(), BillsTab(), BudgetsTab(), ReportTab()][_tab],
+      floatingActionButton: _tab == 4
           ? null // the report has nothing to add
           : FloatingActionButton(
-              onPressed: () => [showRecordForm, showAccountForm, showBudgetForm][_tab](context),
+              onPressed: () => [showRecordForm, showAccountForm, showBillForm, showBudgetForm][_tab](context),
               child: const Icon(Icons.add),
             ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Transaksi'),
-          NavigationDestination(icon: Icon(Icons.account_balance_wallet), label: 'Akun'),
-          NavigationDestination(icon: Icon(Icons.savings_outlined), label: 'Budget'),
-          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Laporan'),
+        destinations: [
+          const NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Transaksi'),
+          const NavigationDestination(icon: Icon(Icons.account_balance_wallet), label: 'Akun'),
+          NavigationDestination(
+            icon: StreamBuilder(
+              stream: _dueBills,
+              builder: (context, snap) => Badge(
+                isLabelVisible: (snap.data ?? 0) > 0,
+                label: Text('${snap.data}'),
+                child: const Icon(Icons.event_repeat),
+              ),
+            ),
+            label: 'Tagihan',
+          ),
+          const NavigationDestination(icon: Icon(Icons.savings_outlined), label: 'Budget'),
+          const NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Laporan'),
         ],
       ),
     );
@@ -274,6 +306,8 @@ class Prefill {
     this.source = 'manual',
     this.sourceRef,
     this.inboxId,
+    this.plannedPaymentId,
+    this.nextDue,
   });
 
   final int? amount;
@@ -287,6 +321,8 @@ class Prefill {
   final String source;
   final String? sourceRef;
   final String? inboxId; // inbox row to remove once the record is saved
+  final String? plannedPaymentId; // bill being paid; moves on to [nextDue] once saved
+  final DateTime? nextDue;
 }
 
 Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
@@ -378,11 +414,14 @@ class _RecordFormState extends State<RecordForm> {
       source: p?.source ?? 'manual',
       sourceRef: p?.sourceRef,
       inboxId: p?.inboxId,
+      plannedPaymentId: p?.plannedPaymentId,
+      nextDue: p?.nextDue,
     );
-    // Learn only from notes the user typed: a notification title like "Pembayaran berhasil" says nothing
-    // about the category. Skip when the keywords already led to this category.
+    // Learn only from notes the user typed (manual or quick input): a notification title like
+    // "Pembayaran berhasil" or a bill name says nothing new. Skip when keywords already led here.
     final picked = _categoryId;
-    if (_categoryPicked && picked != null && p?.inboxId == null && note.isNotEmpty) {
+    final typedNote = p == null || p.source == 'nlp';
+    if (_categoryPicked && picked != null && typedNote && note.isNotEmpty) {
       if (guessCategoryId(note, _type, widget.categories) != picked) await learnKeyword(note, picked);
     }
     if (mounted) Navigator.pop(context);

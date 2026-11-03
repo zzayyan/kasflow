@@ -118,8 +118,9 @@ Future<bool> logout() async {
   return true;
 }
 
-/// Inserts a confirmed record and returns its id. [inboxId] removes the notification
-/// it came from in the same transaction, so a crash can't leave both or neither.
+/// Inserts a confirmed record and returns its id. In the same transaction, so a crash can't leave
+/// one without the other: [inboxId] removes the notification it came from, and paying a planned
+/// payment ([plannedPaymentId]) moves that bill on to [nextDue].
 Future<String> insertRecord({
   required String accountId,
   required String type,
@@ -133,6 +134,8 @@ Future<String> insertRecord({
   String source = 'manual',
   String? sourceRef,
   String? inboxId,
+  String? plannedPaymentId,
+  DateTime? nextDue,
 }) {
   return db.writeTransaction((tx) async {
     final id = (await tx.get('SELECT uuid() AS id'))['id'] as String;
@@ -140,8 +143,9 @@ Future<String> insertRecord({
     await tx.execute(
       '''
       INSERT INTO records (id, user_id, account_id, type, amount, currency, category_id,
-        transfer_account_id, transfer_amount, note, occurred_at, status, source, source_ref, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)''',
+        transfer_account_id, transfer_amount, note, occurred_at, status, source, source_ref,
+        planned_payment_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?)''',
       [
         id,
         currentUserId,
@@ -156,11 +160,23 @@ Future<String> insertRecord({
         occurredAt.toUtc().toIso8601String(),
         source,
         sourceRef,
+        plannedPaymentId,
         now,
         now,
       ],
     );
     if (inboxId != null) await tx.execute('DELETE FROM inbox WHERE id = ?', [inboxId]);
+    if (plannedPaymentId != null && nextDue != null) {
+      await tx.execute('UPDATE planned_payments SET next_due_date = ?, updated_at = ? WHERE id = ?', [
+        dateOnly(nextDue),
+        now,
+        plannedPaymentId,
+      ]);
+    }
     return id;
   });
 }
+
+/// Postgres `date` columns sync as 'YYYY-MM-DD' text.
+String dateOnly(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
