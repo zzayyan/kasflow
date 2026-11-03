@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'db.dart';
 import 'money.dart';
+import 'notifications.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -169,6 +170,10 @@ class RecordsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Column(children: [const NotificationInbox(), Expanded(child: _records())]);
+  }
+
+  Widget _records() {
     return StreamBuilder(
       // ponytail: newest 500 only; add paging when a user has more history than that.
       stream: db.watch('''
@@ -231,8 +236,11 @@ class RecordsTab extends StatelessWidget {
   }
 }
 
-Future<void> showRecordForm(BuildContext context) async {
-  final accounts = await db.getAll('SELECT id, name, currency FROM accounts WHERE archived = 0 ORDER BY name');
+/// [fromInbox] is a row of the `inbox` table: the form is prefilled from the
+/// detected notification and the row is removed once the record is saved.
+Future<void> showRecordForm(BuildContext context, {Map<String, dynamic>? fromInbox}) async {
+  final accounts =
+      await db.getAll('SELECT id, name, currency, provider FROM accounts WHERE archived = 0 ORDER BY name');
   if (!context.mounted) return;
   if (accounts.isEmpty) {
     showMessage(context, 'Buat akun dulu di tab Akun.');
@@ -243,15 +251,16 @@ Future<void> showRecordForm(BuildContext context) async {
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    builder: (_) => RecordForm(accounts: accounts, categories: categories),
+    builder: (_) => RecordForm(accounts: accounts, categories: categories, fromInbox: fromInbox),
   );
 }
 
 class RecordForm extends StatefulWidget {
-  const RecordForm({super.key, required this.accounts, required this.categories});
+  const RecordForm({super.key, required this.accounts, required this.categories, this.fromInbox});
 
   final List<Map<String, dynamic>> accounts;
   final List<Map<String, dynamic>> categories;
+  final Map<String, dynamic>? fromInbox;
 
   @override
   State<RecordForm> createState() => _RecordFormState();
@@ -266,6 +275,19 @@ class _RecordFormState extends State<RecordForm> {
   String? _categoryId;
   DateTime _date = DateTime.now();
 
+  @override
+  void initState() {
+    super.initState();
+    final n = widget.fromInbox;
+    if (n == null) return;
+    _amount.text = NumberFormat.decimalPattern('id_ID').format((n['amount'] as int) / 100);
+    _type = (n['type'] as String?) ?? 'expense';
+    _note.text = (n['title'] as String?) ?? '';
+    _date = DateTime.parse(n['posted_at'] as String).toLocal();
+    final match = widget.accounts.where((a) => a['provider'] != null && a['provider'] == n['provider']);
+    if (match.isNotEmpty) _accountId = match.first['id'] as String;
+  }
+
   Future<void> _save() async {
     final amount = parseAmount(_amount.text);
     if (amount == null) return showMessage(context, 'Nominal tidak valid. Contoh: 25.000 atau 25rb');
@@ -274,17 +296,24 @@ class _RecordFormState extends State<RecordForm> {
     }
     final currency = widget.accounts.firstWhere((a) => a['id'] == _accountId)['currency'];
     final now = nowIso();
-    await db.execute('''
-      INSERT INTO records (id, user_id, account_id, type, amount, currency, category_id,
-        transfer_account_id, transfer_amount, note, occurred_at, status, source, created_at, updated_at)
-      VALUES (uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', 'manual', ?, ?)''', [
-      currentUserId, _accountId, _type, amount, currency,
-      _type == 'transfer' ? null : _categoryId,
-      _type == 'transfer' ? _targetId : null,
-      _type == 'transfer' ? amount : null, // ponytail: same-currency transfers only; ask for received amount when currencies differ
-      _note.text.trim().isEmpty ? null : _note.text.trim(),
-      _date.toUtc().toIso8601String(), now, now,
-    ]);
+    final inbox = widget.fromInbox;
+    await db.writeTransaction((tx) async {
+      await tx.execute('''
+        INSERT INTO records (id, user_id, account_id, type, amount, currency, category_id,
+          transfer_account_id, transfer_amount, note, occurred_at, status, source, source_ref, created_at, updated_at)
+        VALUES (uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)''', [
+        currentUserId, _accountId, _type, amount, currency,
+        _type == 'transfer' ? null : _categoryId,
+        _type == 'transfer' ? _targetId : null,
+        _type == 'transfer' ? amount : null, // ponytail: same-currency transfers only; ask for received amount when currencies differ
+        _note.text.trim().isEmpty ? null : _note.text.trim(),
+        _date.toUtc().toIso8601String(),
+        inbox == null ? 'manual' : 'notification',
+        inbox?['ref'], // server-side unique index stops the same notification being recorded twice
+        now, now,
+      ]);
+      if (inbox != null) await tx.execute('DELETE FROM inbox WHERE id = ?', [inbox['id']]);
+    });
     if (mounted) Navigator.pop(context);
   }
 
@@ -362,6 +391,105 @@ class _RecordFormState extends State<RecordForm> {
           FilledButton(onPressed: _save, child: const Text('Simpan')),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- notification inbox (B1)
+
+class NotificationInbox extends StatefulWidget {
+  const NotificationInbox({super.key});
+
+  @override
+  State<NotificationInbox> createState() => _NotificationInboxState();
+}
+
+class _NotificationInboxState extends State<NotificationInbox> with WidgetsBindingObserver {
+  bool? _enabled;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Returning from Android settings or from a bank app both arrive here.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final enabled = await notificationAccessEnabled();
+    if (mounted) setState(() => _enabled = enabled);
+    if (enabled) await importNotifications();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_enabled == null) return const SizedBox.shrink();
+    if (_enabled == false) {
+      return Card(
+        margin: const EdgeInsets.all(12),
+        child: ListTile(
+          leading: const Icon(Icons.notifications_active),
+          title: const Text('Catat otomatis dari notifikasi bank & e-wallet'),
+          subtitle: const Text('Hanya notifikasi aplikasi keuangan yang dibaca. Isinya tetap di HP ini.'),
+          trailing: FilledButton(onPressed: openNotificationAccessSettings, child: const Text('Aktifkan')),
+        ),
+      );
+    }
+    return StreamBuilder(
+      stream: db.watch('SELECT * FROM inbox ORDER BY posted_at DESC'),
+      builder: (context, snap) {
+        final rows = snap.data;
+        if (rows == null || rows.isEmpty) return const SizedBox.shrink();
+        return Card(
+          margin: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: Text('Perlu dicek (${rows.length})', style: Theme.of(context).textTheme.titleSmall),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [for (final n in rows) _item(context, n)],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _item(BuildContext context, Map<String, dynamic> n) {
+    final provider = accountPresets.where((p) => p.provider == n['provider']).map((p) => p.name).firstOrNull;
+    final type = n['type'] as String?;
+    return ListTile(
+      leading: Icon(
+        type == 'income' ? Icons.south_west : type == 'expense' ? Icons.north_east : Icons.help_outline,
+        color: type == 'income' ? Colors.green.shade700 : type == 'expense' ? Colors.red.shade700 : null,
+      ),
+      title: Text('${provider ?? n['package']} · ${formatAmount(n['amount'] as int)}'),
+      subtitle: Text(n['text'] as String, maxLines: 2, overflow: TextOverflow.ellipsis),
+      trailing: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Abaikan',
+        onPressed: () => db.execute('DELETE FROM inbox WHERE id = ?', [n['id']]),
+      ),
+      onTap: () => showRecordForm(context, fromInbox: n),
     );
   }
 }

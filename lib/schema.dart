@@ -114,6 +114,18 @@ const schema = Schema([
     Column.text('currency'),
     Column.text('per_usd'),
   ]),
+  // B1: transactions detected in bank/e-wallet notifications, waiting for the user to
+  // confirm. Local-only: raw notification text never leaves the phone.
+  Table.localOnly('inbox', [
+    Column.text('ref'),
+    Column.text('package'),
+    Column.text('provider'),
+    Column.text('title'),
+    Column.text('text'),
+    Column.integer('amount'),
+    Column.text('type'),
+    Column.text('posted_at'),
+  ]),
   // Uploads the server rejected for good (constraint or RLS errors). Kept on the
   // device instead of being dropped, so a bug never silently loses a transaction.
   Table.localOnly('upload_errors', [
