@@ -1,0 +1,18 @@
+config:
+  edition: 3
+
+streams:
+  user_data:
+    auto_subscribe: true
+    queries:
+      - SELECT * FROM user_settings WHERE user_id = auth.user_id()
+      - SELECT * FROM accounts WHERE user_id = auth.user_id()
+      - SELECT * FROM categories WHERE user_id = auth.user_id()
+      - SELECT * FROM labels WHERE user_id = auth.user_id()
+      - SELECT * FROM records WHERE user_id = auth.user_id()
+      - SELECT * FROM budgets WHERE user_id = auth.user_id()
+      - SELECT * FROM goals WHERE user_id = auth.user_id()
+      - SELECT * FROM planned_payments WHERE user_id = auth.user_id()
+  rates:
+    auto_subscribe: true
+    query: SELECT * FROM exchange_rates
