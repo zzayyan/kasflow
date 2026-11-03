@@ -191,3 +191,35 @@ const accountBalancesSql = '''
   FROM accounts a
   LEFT JOIN records r ON a.id IN (r.account_id, r.transfer_account_id) AND r.status = 'confirmed'
   GROUP BY a.id''';
+
+/// Edits a record in place. Where it came from (source, source_ref, a paid bill) stays as it was.
+Future<void> updateRecord(
+  String id, {
+  required String accountId,
+  required String type,
+  required int amount,
+  required String currency,
+  required DateTime occurredAt,
+  String? categoryId,
+  String? transferAccountId,
+  int? transferAmount,
+  String? note,
+}) => db.execute(
+  '''
+  UPDATE records SET account_id = ?, type = ?, amount = ?, currency = ?, category_id = ?,
+    transfer_account_id = ?, transfer_amount = ?, note = ?, occurred_at = ?, updated_at = ?
+  WHERE id = ?''',
+  [
+    accountId,
+    type,
+    amount,
+    currency,
+    categoryId,
+    transferAccountId,
+    transferAmount,
+    note,
+    occurredAt.toUtc().toIso8601String(),
+    nowIso(),
+    id,
+  ],
+);

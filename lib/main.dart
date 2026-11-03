@@ -269,32 +269,51 @@ class RecordsTab extends StatelessWidget {
                       : null,
                 ),
               ),
-              onLongPress: () => _confirmDelete(context, r['id'] as String),
+              onTap: () => showRecordForm(context, prefill: Prefill.fromRecord(r)),
+              onLongPress: () => confirmDeleteRecord(context, r['id'] as String),
             );
           },
         );
       },
     );
   }
-
-  Future<void> _confirmDelete(BuildContext context, String id) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Hapus transaksi?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Hapus')),
-        ],
-      ),
-    );
-    if (ok == true) await db.execute('DELETE FROM records WHERE id = ?', [id]);
-  }
 }
 
-/// Values to start the record form with, from a detected notification or from quick input.
+/// Returns true when the record was deleted.
+Future<bool> confirmDeleteRecord(BuildContext context, String id) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Hapus transaksi?'),
+      // ponytail: deleting a paid bill's record does not move the bill's due date back; skip it by hand.
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Hapus')),
+      ],
+    ),
+  );
+  if (ok != true) return false;
+  await db.execute('DELETE FROM records WHERE id = ?', [id]);
+  return true;
+}
+
+/// Values to start the record form with: a detected notification, quick input, a bill, a goal,
+/// or an existing record to edit ([recordId]).
 class Prefill {
+  factory Prefill.fromRecord(Map<String, dynamic> r) => Prefill(
+    recordId: r['id'] as String,
+    amount: r['amount'] as int,
+    type: r['type'] as String,
+    accountId: r['account_id'] as String,
+    categoryId: r['category_id'] as String?,
+    transferAccountId: r['transfer_account_id'] as String?,
+    note: r['note'] as String?,
+    date: DateTime.parse(r['occurred_at'] as String).toLocal(),
+    source: (r['source'] as String?) ?? 'manual',
+  );
+
   const Prefill({
+    this.recordId,
     this.amount,
     this.type,
     this.accountId,
@@ -311,6 +330,7 @@ class Prefill {
     this.nextDue,
   });
 
+  final String? recordId; // edit this record instead of inserting a new one
   final int? amount;
   final String? type;
   final String? accountId;
@@ -328,8 +348,11 @@ class Prefill {
 }
 
 Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
+  // Archived accounts and categories stay selectable when the record being edited uses them;
+  // a dropdown whose current value is missing from its items would throw.
   final accounts = await db.getAll(
-    'SELECT id, name, currency, provider FROM accounts WHERE archived = 0 ORDER BY name',
+    'SELECT id, name, currency, provider FROM accounts WHERE archived = 0 OR id IN (?, ?) ORDER BY name',
+    [prefill?.accountId, prefill?.transferAccountId],
   );
   if (!context.mounted) return;
   if (accounts.isEmpty) {
@@ -337,7 +360,8 @@ Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
     return;
   }
   final categories = await db.getAll(
-    'SELECT id, name, type, keywords FROM categories WHERE archived = 0 ORDER BY name',
+    'SELECT id, name, type, keywords FROM categories WHERE archived = 0 OR id = ? ORDER BY name',
+    [prefill?.categoryId],
   );
   if (!context.mounted) return;
   await showModalBottomSheet(
@@ -387,7 +411,15 @@ class _RecordFormState extends State<RecordForm> {
       if (_accountId == target && other != null) _accountId = other['id'] as String;
     }
     _categoryId = p.categoryId ?? guessCategoryId(p.guessText ?? _note.text, _type, widget.categories);
+    if (_editing) {
+      // The saved category is the user's choice: editing the note must not replace it.
+      _categoryPicked = p.categoryId != null;
+      _originalCategoryId = p.categoryId;
+    }
   }
+
+  bool get _editing => widget.prefill?.recordId != null;
+  String? _originalCategoryId;
 
   // Typing a note fills an empty category, e.g. "bakso" -> Makan & Minum. Never overrides a choice.
   bool _categoryPicked = false;
@@ -408,31 +440,55 @@ class _RecordFormState extends State<RecordForm> {
     final p = widget.prefill;
     final note = _note.text.trim();
     final transfer = _type == 'transfer';
-    await insertRecord(
-      accountId: _accountId,
-      type: _type,
-      amount: amount,
-      currency: currency,
-      occurredAt: _date,
-      categoryId: transfer ? null : _categoryId,
-      transferAccountId: transfer ? _targetId : null,
-      // ponytail: same-currency transfers only; ask for the received amount when currencies differ.
-      transferAmount: transfer ? amount : null,
-      note: note.isEmpty ? null : note,
-      source: p?.source ?? 'manual',
-      sourceRef: p?.sourceRef,
-      inboxId: p?.inboxId,
-      plannedPaymentId: p?.plannedPaymentId,
-      nextDue: p?.nextDue,
-    );
+    final categoryId = transfer ? null : _categoryId;
+    final transferAccountId = transfer ? _targetId : null;
+    // ponytail: same-currency transfers only; ask for the received amount when currencies differ.
+    final transferAmount = transfer ? amount : null;
+    if (p?.recordId case final id?) {
+      await updateRecord(
+        id,
+        accountId: _accountId,
+        type: _type,
+        amount: amount,
+        currency: currency,
+        occurredAt: _date,
+        categoryId: categoryId,
+        transferAccountId: transferAccountId,
+        transferAmount: transferAmount,
+        note: note.isEmpty ? null : note,
+      );
+    } else {
+      await insertRecord(
+        accountId: _accountId,
+        type: _type,
+        amount: amount,
+        currency: currency,
+        occurredAt: _date,
+        categoryId: categoryId,
+        transferAccountId: transferAccountId,
+        transferAmount: transferAmount,
+        note: note.isEmpty ? null : note,
+        source: p?.source ?? 'manual',
+        sourceRef: p?.sourceRef,
+        inboxId: p?.inboxId,
+        plannedPaymentId: p?.plannedPaymentId,
+        nextDue: p?.nextDue,
+      );
+    }
     // Learn only from notes the user typed (manual or quick input): a notification title like
-    // "Pembayaran berhasil" or a bill name says nothing new. Skip when keywords already led here.
-    final picked = _categoryId;
-    final typedNote = p == null || p.source == 'nlp';
-    if (_categoryPicked && picked != null && typedNote && note.isNotEmpty) {
+    // "Pembayaran berhasil" or a bill name says nothing new. When editing, only an actual change of
+    // category teaches anything. Skip when the keywords already led to this category.
+    final picked = categoryId;
+    final typedNote = const {'manual', 'nlp'}.contains(p?.source ?? 'manual');
+    final changed = !_editing || picked != _originalCategoryId;
+    if (_categoryPicked && picked != null && typedNote && changed && note.isNotEmpty) {
       if (guessCategoryId(note, _type, widget.categories) != picked) await learnKeyword(note, picked);
     }
     if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _delete() async {
+    if (await confirmDeleteRecord(context, widget.prefill!.recordId!) && mounted) Navigator.pop(context);
   }
 
   @override
@@ -461,7 +517,7 @@ class _RecordFormState extends State<RecordForm> {
           ),
           TextField(
             controller: _amount,
-            autofocus: true,
+            autofocus: !_editing,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: 'Nominal', prefixText: 'Rp '),
           ),
@@ -511,13 +567,29 @@ class _RecordFormState extends State<RecordForm> {
                 firstDate: DateTime(2000),
                 lastDate: DateTime.now().add(const Duration(days: 365)),
               );
+              // Keep the time of day: a new record has "now", an edited one keeps its original time.
               if (picked != null) {
-                final now = DateTime.now();
-                setState(() => _date = DateTime(picked.year, picked.month, picked.day, now.hour, now.minute));
+                setState(() => _date = DateTime(picked.year, picked.month, picked.day, _date.hour, _date.minute));
               }
             },
           ),
-          FilledButton(onPressed: _save, child: const Text('Simpan')),
+          if (_editing)
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: _delete,
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Hapus'),
+                  style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(onPressed: _save, child: const Text('Simpan perubahan')),
+                ),
+              ],
+            )
+          else
+            FilledButton(onPressed: _save, child: const Text('Simpan')),
         ],
       ),
     );
