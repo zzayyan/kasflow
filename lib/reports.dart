@@ -93,3 +93,40 @@ int? dailyAllowance(int spent, int limit, DateTime end, DateTime now) {
   final days = DateTime(end.year, end.month, end.day).difference(today).inDays;
   return days <= 0 ? null : remaining ~/ days;
 }
+
+class GoalPlan {
+  const GoalPlan({
+    required this.progress,
+    required this.remaining,
+    required this.reached,
+    this.perMonth,
+    this.late = false,
+  });
+
+  final double progress; // 0..1
+  final int remaining; // 0 once reached
+  final bool reached;
+  final int? perMonth; // to save each month to reach the target date; null without a date
+  final bool late; // target date passed and not reached
+}
+
+/// Progress of a saving goal whose [saved] amount is the linked account's balance.
+/// Months left counts calendar months from now to the target month, at least 1, so a target later
+/// this month asks for the whole remainder now.
+GoalPlan planGoal({required int saved, required int target, DateTime? targetDate, required DateTime now}) {
+  final remaining = (target - saved).clamp(0, target);
+  final reached = saved >= target;
+  final progress = target <= 0 ? 1.0 : (saved / target).clamp(0.0, 1.0);
+  if (reached || targetDate == null) return GoalPlan(progress: progress, remaining: remaining, reached: reached);
+  final today = DateTime(now.year, now.month, now.day);
+  if (targetDate.isBefore(today)) {
+    return GoalPlan(progress: progress, remaining: remaining, reached: false, late: true);
+  }
+  final months = (targetDate.year - now.year) * 12 + targetDate.month - now.month;
+  return GoalPlan(
+    progress: progress,
+    remaining: remaining,
+    reached: false,
+    perMonth: (remaining / (months < 1 ? 1 : months)).ceil(),
+  );
+}

@@ -39,4 +39,15 @@ void main() {
     expect(dailyAllowance(1000, 29000, DateTime(2026, 12), DateTime(2026, 11, 3, 22)), 1000);
     expect(dailyAllowance(100, 100, DateTime(2026, 12), DateTime(2026, 11, 3)), null);
   });
+
+  test('goal plan: monthly amount to the target month, reached, late', () {
+    final now = DateTime(2026, 11, 3);
+    final p = planGoal(saved: 200, target: 1400, targetDate: DateTime(2027, 5, 1), now: now);
+    expect((p.progress, p.remaining, p.perMonth, p.reached, p.late), (200 / 1400, 1200, 200, false, false));
+    expect(planGoal(saved: 0, target: 100, targetDate: DateTime(2026, 11, 30), now: now).perMonth, 100);
+    expect(planGoal(saved: 0, target: 100, now: now).perMonth, null);
+    final reached = planGoal(saved: 150, target: 100, targetDate: DateTime(2026, 1, 1), now: now);
+    expect((reached.reached, reached.late, reached.remaining, reached.progress), (true, false, 0, 1.0));
+    expect(planGoal(saved: 10, target: 100, targetDate: DateTime(2026, 11, 2), now: now).late, true);
+  });
 }

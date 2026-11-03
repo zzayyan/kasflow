@@ -180,3 +180,14 @@ Future<String> insertRecord({
 /// Postgres `date` columns sync as 'YYYY-MM-DD' text.
 String dateOnly(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+/// Balance per account (`id`, `balance`), derived from confirmed records and never stored, so two
+/// phones syncing at once can't disagree about it. Use as a subquery.
+const accountBalancesSql = '''
+  SELECT a.id, a.initial_balance + COALESCE(SUM(CASE
+      WHEN r.account_id = a.id AND r.type = 'income' THEN r.amount
+      WHEN r.account_id = a.id AND r.type IN ('expense', 'transfer') THEN -r.amount
+      WHEN r.transfer_account_id = a.id THEN r.transfer_amount END), 0) AS balance
+  FROM accounts a
+  LEFT JOIN records r ON a.id IN (r.account_id, r.transfer_account_id) AND r.status = 'confirmed'
+  GROUP BY a.id''';

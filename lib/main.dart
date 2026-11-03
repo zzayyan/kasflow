@@ -156,7 +156,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(const ['Transaksi', 'Akun', 'Tagihan', 'Budget', 'Laporan'][_tab]),
+        title: Text(const ['Transaksi', 'Akun', 'Tagihan', 'Rencana', 'Laporan'][_tab]),
         actions: [
           StreamBuilder(
             stream: db.statusStream,
@@ -173,11 +173,11 @@ class _HomePageState extends State<HomePage> {
           IconButton(icon: const Icon(Icons.logout), tooltip: 'Keluar', onPressed: _logout),
         ],
       ),
-      body: const [RecordsTab(), AccountsTab(), BillsTab(), BudgetsTab(), ReportTab()][_tab],
+      body: const [RecordsTab(), AccountsTab(), BillsTab(), PlansTab(), ReportTab()][_tab],
       floatingActionButton: _tab == 4
           ? null // the report has nothing to add
           : FloatingActionButton(
-              onPressed: () => [showRecordForm, showAccountForm, showBillForm, showBudgetForm][_tab](context),
+              onPressed: () => [showRecordForm, showAccountForm, showBillForm, showPlanChooser][_tab](context),
               child: const Icon(Icons.add),
             ),
       bottomNavigationBar: NavigationBar(
@@ -197,7 +197,7 @@ class _HomePageState extends State<HomePage> {
             ),
             label: 'Tagihan',
           ),
-          const NavigationDestination(icon: Icon(Icons.savings_outlined), label: 'Budget'),
+          const NavigationDestination(icon: Icon(Icons.savings_outlined), label: 'Rencana'),
           const NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Laporan'),
         ],
       ),
@@ -307,6 +307,7 @@ class Prefill {
     this.sourceRef,
     this.inboxId,
     this.plannedPaymentId,
+    this.transferAccountId,
     this.nextDue,
   });
 
@@ -323,6 +324,7 @@ class Prefill {
   final String? inboxId; // inbox row to remove once the record is saved
   final String? plannedPaymentId; // bill being paid; moves on to [nextDue] once saved
   final DateTime? nextDue;
+  final String? transferAccountId; // transfer into this account, e.g. a saving goal's account
 }
 
 Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
@@ -378,6 +380,12 @@ class _RecordFormState extends State<RecordForm> {
         .where((a) => p.accountId != null ? a['id'] == p.accountId : p.provider != null && a['provider'] == p.provider)
         .firstOrNull;
     if (account != null) _accountId = account['id'] as String;
+    if (p.transferAccountId case final target?) {
+      _targetId = target;
+      // Pay in from any other account; the form refuses a transfer to the same account.
+      final other = widget.accounts.where((a) => a['id'] != target).firstOrNull;
+      if (_accountId == target && other != null) _accountId = other['id'] as String;
+    }
     _categoryId = p.categoryId ?? guessCategoryId(p.guessText ?? _note.text, _type, widget.categories);
   }
 
@@ -759,16 +767,11 @@ class AccountsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
-      // Balance is derived from records (never stored), so two phones can't disagree about it.
       stream: db.watch('''
-        SELECT a.id, a.name, a.type, a.initial_balance + COALESCE(SUM(CASE
-            WHEN r.account_id = a.id AND r.type = 'income' THEN r.amount
-            WHEN r.account_id = a.id AND r.type IN ('expense', 'transfer') THEN -r.amount
-            WHEN r.transfer_account_id = a.id THEN r.transfer_amount END), 0) AS balance
-        FROM accounts a
-        LEFT JOIN records r ON a.id IN (r.account_id, r.transfer_account_id) AND r.status = 'confirmed'
+        SELECT a.id, a.name, a.type, b.balance
+        FROM accounts a JOIN ($accountBalancesSql) b ON b.id = a.id
         WHERE a.archived = 0
-        GROUP BY a.id ORDER BY a.name'''),
+        ORDER BY a.name'''),
       builder: (context, snap) {
         final rows = snap.data;
         if (rows == null) return const Center(child: CircularProgressIndicator());

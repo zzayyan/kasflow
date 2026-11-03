@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'db.dart';
+import 'main.dart' show Prefill, showRecordForm;
 import 'money.dart';
 import 'reports.dart';
 
@@ -22,6 +23,7 @@ class VizColors {
 
   static const warning = Color(0xFFFAB219); // status palette: fixed, never themed
   static const critical = Color(0xFFD03B3B);
+  static const success = Color(0xFF0CA30C); // status "good": a reached goal
 
   static VizColors of(BuildContext context) => Theme.of(context).brightness == Brightness.dark
       ? const VizColors._(Color(0xFF3987E5), {
@@ -403,13 +405,394 @@ class BudgetsTab extends StatelessWidget {
       stream: _watch(),
       builder: (context, snap) {
         final budgets = snap.data;
-        if (budgets == null) return const Center(child: CircularProgressIndicator());
-        if (budgets.isEmpty) return const Center(child: Text('Belum ada budget. Tekan + untuk membuat.'));
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
-          children: [for (final b in budgets) _BudgetCard(b)],
-        );
+        if (budgets == null) return const SizedBox.shrink();
+        if (budgets.isEmpty) return const _Hint('Belum ada budget. Contoh: Makan bulanan 1,5jt.');
+        return Column(children: [for (final b in budgets) _BudgetCard(b)]);
       },
+    );
+  }
+}
+
+/// Meter: the fill carries the state, the track is a lighter step of the same color.
+class _Meter extends StatelessWidget {
+  const _Meter({required this.value, required this.fill, required this.label});
+
+  final double value;
+  final Color fill;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: label,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: Container(
+          height: 8,
+          color: fill.withValues(alpha: 0.22),
+          alignment: Alignment.centerLeft,
+          child: FractionallySizedBox(
+            heightFactor: 1, // a childless ColoredBox would otherwise collapse to 0px tall
+            widthFactor: value.clamp(0.0, 1.0),
+            child: ColoredBox(color: fill),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Hint extends StatelessWidget {
+  const _Hint(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+    child: Text(text, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+  );
+}
+
+// ---------------------------------------------------------------- plans tab: goals (A6) + budgets (A5)
+
+class PlansTab extends StatelessWidget {
+  const PlansTab({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget header(String title, String add, VoidCallback onAdd) => Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 0, 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
+          TextButton.icon(onPressed: onAdd, icon: const Icon(Icons.add), label: Text(add)),
+        ],
+      ),
+    );
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 88),
+      children: [
+        header('Goal tabungan', 'Goal', () => showGoalForm(context)),
+        const _GoalsList(),
+        header('Budget', 'Budget', () => showBudgetForm(context)),
+        const BudgetsTab(),
+      ],
+    );
+  }
+}
+
+Future<void> showPlanChooser(BuildContext context) async {
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.flag_outlined),
+            title: const Text('Goal tabungan baru'),
+            subtitle: const Text('Target nominal, misalnya dana darurat atau HP baru'),
+            onTap: () => Navigator.pop(context, 'goal'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.savings_outlined),
+            title: const Text('Budget baru'),
+            subtitle: const Text('Batas pengeluaran per minggu, bulan, atau tahun'),
+            onTap: () => Navigator.pop(context, 'budget'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (!context.mounted) return;
+  if (choice == 'goal') return showGoalForm(context);
+  if (choice == 'budget') return showBudgetForm(context);
+}
+
+class _GoalsList extends StatelessWidget {
+  const _GoalsList();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      // Saved = the linked account's balance, derived from records like every balance.
+      stream: db.watch('''
+        SELECT g.*, a.name AS account_name, COALESCE(b.balance, 0) AS saved
+        FROM goals g
+        LEFT JOIN accounts a ON a.id = g.account_id
+        LEFT JOIN ($accountBalancesSql) b ON b.id = g.account_id
+        ORDER BY g.state = 'paused', g.target_date IS NULL, g.target_date, g.name'''),
+      builder: (context, snap) {
+        final goals = snap.data;
+        if (goals == null) return const SizedBox.shrink();
+        if (goals.isEmpty) return const _Hint('Belum ada goal. Contoh: Dana darurat 10jt, liburan, HP baru.');
+        return Column(children: [for (final g in goals) _GoalCard(g)]);
+      },
+    );
+  }
+}
+
+class _GoalCard extends StatelessWidget {
+  const _GoalCard(this.g);
+
+  final Map<String, dynamic> g;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final saved = g['saved'] as int;
+    final target = g['target_amount'] as int;
+    final targetDate = g['target_date'] == null ? null : DateTime.parse(g['target_date'] as String);
+    final plan = planGoal(saved: saved, target: target, targetDate: targetDate, now: DateTime.now());
+    final paused = g['state'] == 'paused';
+    final accent = VizColors.of(context).bar;
+    final (fill, icon, iconColor, status) = plan.reached
+        ? (VizColors.success, Icons.check_circle_outline, VizColors.success, 'Tercapai')
+        : paused
+        ? (muted, Icons.pause_circle_outline, muted, 'Dijeda')
+        : plan.late
+        ? (accent, Icons.warning_amber_rounded, VizColors.warning, 'Lewat tanggal target')
+        : (
+            accent,
+            Icons.flag_outlined,
+            accent,
+            plan.perMonth != null
+                ? 'Nabung ${formatAmount(plan.perMonth!)}/bulan'
+                : 'Sisa ${formatAmount(plan.remaining)}',
+          );
+    final details = [
+      '${formatAmount(saved)} dari ${formatAmount(target)}',
+      if (targetDate != null) 'target ${DateFormat('d MMM yyyy', 'id_ID').format(targetDate)}',
+      // The account is worth naming only when it isn't the one created for this goal.
+      if (g['account_name'] != g['name']) 'di ${g['account_name'] ?? 'akun terhapus'}',
+    ].join(' · ');
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onLongPress: () => _options(context, paused),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: Text(g['name'] as String, style: theme.textTheme.titleSmall)),
+                        Text(
+                          _percent(saved.clamp(0, target), target),
+                          style: theme.textTheme.labelMedium?.copyWith(color: muted),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    _Meter(value: plan.progress, fill: fill, label: '${_percent(saved, target)} terkumpul, $status'),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(icon, size: 16, color: iconColor),
+                        const SizedBox(width: 4),
+                        Expanded(child: Text(status, style: theme.textTheme.labelMedium)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(details, style: theme.textTheme.bodySmall?.copyWith(color: muted)),
+                  ],
+                ),
+              ),
+              if (!plan.reached && !paused && g['account_id'] != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.add),
+                    label: const Text('Tambah tabungan'),
+                    // A transfer into the goal's account keeps every balance right.
+                    onPressed: () => showRecordForm(
+                      context,
+                      prefill: Prefill(
+                        type: 'transfer',
+                        transferAccountId: g['account_id'] as String,
+                        note: 'Tabungan ${g['name']}',
+                      ),
+                    ),
+                  ),
+                )
+              else
+                const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _options(BuildContext context, bool paused) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(paused ? Icons.play_circle_outline : Icons.pause_circle_outline),
+              title: Text(paused ? 'Lanjutkan goal' : 'Jeda goal'),
+              onTap: () => Navigator.pop(context, 'toggle'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Hapus goal'),
+              subtitle: const Text('Akun tabungan dan saldonya tetap ada'),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == 'toggle') {
+      await db.execute('UPDATE goals SET state = ?, updated_at = ? WHERE id = ?', [
+        paused ? 'active' : 'paused',
+        nowIso(),
+        g['id'],
+      ]);
+    } else if (choice == 'delete') {
+      await db.execute('DELETE FROM goals WHERE id = ?', [g['id']]);
+    }
+  }
+}
+
+const _newAccount = '__new';
+
+Future<void> showGoalForm(BuildContext context) async {
+  final accounts = await db.getAll("SELECT id, name FROM accounts WHERE archived = 0 ORDER BY type != 'savings', name");
+  if (!context.mounted) return;
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => GoalForm(accounts: accounts),
+  );
+}
+
+class GoalForm extends StatefulWidget {
+  const GoalForm({super.key, required this.accounts});
+
+  final List<Map<String, dynamic>> accounts;
+
+  @override
+  State<GoalForm> createState() => _GoalFormState();
+}
+
+class _GoalFormState extends State<GoalForm> {
+  final _name = TextEditingController();
+  final _target = TextEditingController();
+  final _saved = TextEditingController();
+  DateTime? _date;
+  String _accountId = _newAccount;
+
+  Future<void> _save() async {
+    final name = _name.text.trim();
+    if (name.isEmpty) return _message(context, 'Isi nama goal, contoh: Dana darurat');
+    final target = parseAmount(_target.text);
+    if (target == null) return _message(context, 'Target tidak valid. Contoh: 10jt');
+    final savedText = _saved.text.trim();
+    final saved = _accountId != _newAccount || savedText.isEmpty ? 0 : parseAmount(savedText);
+    if (saved == null) return _message(context, 'Jumlah yang sudah terkumpul tidak valid.');
+    final now = nowIso();
+    await db.writeTransaction((tx) async {
+      var accountId = _accountId;
+      if (accountId == _newAccount) {
+        // A dedicated savings account: its balance is the goal's progress.
+        accountId = (await tx.get('SELECT uuid() AS id'))['id'] as String;
+        await tx.execute(
+          '''
+          INSERT INTO accounts (id, user_id, name, type, currency, initial_balance, archived, exclude_from_stats,
+            created_at, updated_at)
+          VALUES (?, ?, ?, 'savings', 'IDR', ?, 0, 0, ?, ?)''',
+          [accountId, currentUserId, name, saved, now, now],
+        );
+      }
+      await tx.execute(
+        '''
+        INSERT INTO goals (id, user_id, name, target_amount, currency, account_id, target_date, state,
+          created_at, updated_at)
+        VALUES (uuid(), ?, ?, ?, 'IDR', ?, ?, 'active', ?, ?)''',
+        [currentUserId, name, target, accountId, _date == null ? null : dateOnly(_date!), now, now],
+      );
+    });
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final date = _date;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.viewInsetsOf(context).bottom + 16),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _name,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Nama goal', hintText: 'contoh: Dana darurat'),
+            ),
+            TextField(
+              controller: _target,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Target', prefixText: 'Rp '),
+            ),
+            DropdownButtonFormField(
+              initialValue: _accountId,
+              decoration: const InputDecoration(labelText: 'Simpan di akun'),
+              items: [
+                const DropdownMenuItem(value: _newAccount, child: Text('Akun tabungan baru')),
+                for (final a in widget.accounts)
+                  DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String)),
+              ],
+              onChanged: (v) => setState(() => _accountId = v!),
+            ),
+            if (_accountId == _newAccount)
+              TextField(
+                controller: _saved,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Sudah terkumpul (opsional)', prefixText: 'Rp '),
+              )
+            else
+              const Padding(padding: EdgeInsets.only(top: 8), child: Text('Progres goal mengikuti saldo akun ini.')),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.event),
+              title: const Text('Tanggal target (opsional)'),
+              subtitle: Text(date == null ? 'Tanpa tanggal' : DateFormat('d MMMM yyyy', 'id_ID').format(date)),
+              trailing: date == null
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close),
+                      tooltip: 'Hapus tanggal',
+                      onPressed: () => setState(() => _date = null),
+                    ),
+              onTap: () async {
+                final now = DateTime.now();
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: date ?? DateTime(now.year + 1, now.month, now.day),
+                  firstDate: now,
+                  lastDate: DateTime(now.year + 30),
+                );
+                if (picked != null) setState(() => _date = picked);
+              },
+            ),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: _save, child: const Text('Simpan')),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -451,21 +834,10 @@ class _BudgetCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-              Semantics(
+              _Meter(
+                value: limit == 0 ? 0 : b.spent / limit,
+                fill: fill,
                 label: '${_percent(b.spent, limit)} terpakai, $status',
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: Container(
-                    height: 8,
-                    color: fill.withValues(alpha: 0.22),
-                    alignment: Alignment.centerLeft,
-                    child: FractionallySizedBox(
-                      heightFactor: 1, // a childless ColoredBox would otherwise collapse to 0px tall
-                      widthFactor: limit == 0 ? 0 : (b.spent / limit).clamp(0.0, 1.0),
-                      child: ColoredBox(color: fill),
-                    ),
-                  ),
-                ),
               ),
               const SizedBox(height: 10),
               Row(
