@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'categorize.dart';
 import 'db.dart';
+import 'insights.dart';
 import 'money.dart';
 import 'notifications.dart';
 import 'quick_input.dart';
@@ -32,6 +33,7 @@ class App extends StatelessWidget {
     return MaterialApp(
       title: 'Cashflow',
       theme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true),
+      darkTheme: ThemeData(colorSchemeSeed: Colors.teal, useMaterial3: true, brightness: Brightness.dark),
       home: StreamBuilder<AuthState>(
         stream: supabase.auth.onAuthStateChange,
         builder: (context, _) => supabase.auth.currentSession == null ? const LoginPage() : const HomePage(),
@@ -133,7 +135,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_tab == 0 ? 'Transaksi' : 'Akun'),
+        title: Text(const ['Transaksi', 'Akun', 'Budget', 'Laporan'][_tab]),
         actions: [
           StreamBuilder(
             stream: db.statusStream,
@@ -150,17 +152,21 @@ class _HomePageState extends State<HomePage> {
           IconButton(icon: const Icon(Icons.logout), tooltip: 'Keluar', onPressed: _logout),
         ],
       ),
-      body: _tab == 0 ? const RecordsTab() : const AccountsTab(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _tab == 0 ? showRecordForm(context) : showAccountForm(context),
-        child: const Icon(Icons.add),
-      ),
+      body: const [RecordsTab(), AccountsTab(), BudgetsTab(), ReportTab()][_tab],
+      floatingActionButton: _tab == 3
+          ? null // the report has nothing to add
+          : FloatingActionButton(
+              onPressed: () => [showRecordForm, showAccountForm, showBudgetForm][_tab](context),
+              child: const Icon(Icons.add),
+            ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Transaksi'),
           NavigationDestination(icon: Icon(Icons.account_balance_wallet), label: 'Akun'),
+          NavigationDestination(icon: Icon(Icons.savings_outlined), label: 'Budget'),
+          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Laporan'),
         ],
       ),
     );
@@ -192,7 +198,7 @@ class RecordsTab extends StatelessWidget {
         LEFT JOIN accounts a ON a.id = r.account_id
         LEFT JOIN accounts t ON t.id = r.transfer_account_id
         LEFT JOIN categories c ON c.id = r.category_id
-        ORDER BY r.occurred_at DESC LIMIT 500'''),
+        ORDER BY julianday(r.occurred_at) DESC LIMIT 500'''),
       builder: (context, snap) {
         final rows = snap.data;
         if (rows == null) return const Center(child: CircularProgressIndicator());

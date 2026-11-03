@@ -15,6 +15,12 @@ void main() {
     expect(parseAmount('25.00'), null); // ambiguous grouping is rejected, not guessed
   });
 
+  test('formatCompact shortens thousands and millions', () {
+    String c(int cents) => formatCompact(cents).replaceAll(String.fromCharCode(0xa0), ' ');
+    expect(c(2500000), 'Rp 25 rb');
+    expect(c(125000000), 'Rp 1,25 jt');
+  });
+
   test('formatAmount shows Rupiah without decimals', () {
     expect(formatAmount(2500000).replaceAll(' ', ' '), 'Rp 25.000');
   });

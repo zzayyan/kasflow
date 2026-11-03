@@ -23,3 +23,8 @@ int? parseAmount(String input) {
 final _idr = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
 
 String formatAmount(int cents) => _idr.format(cents / 100);
+
+final _idrCompact = NumberFormat.compactCurrency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: null);
+
+/// Short form for tight spaces such as stat tiles: "Rp 25 rb", "Rp 1,25 jt".
+String formatCompact(int cents) => _idrCompact.format(cents / 100);
