@@ -12,6 +12,7 @@ class QuickEntry {
     required this.date,
     this.accountId,
     this.categoryId,
+    this.labels = const [],
   });
 
   final int amount;
@@ -20,6 +21,7 @@ class QuickEntry {
   final DateTime date;
   final String? accountId; // null: the caller picks a default
   final String? categoryId; // null: no keyword matched, ask the user
+  final List<String> labels; // label names from hashtags, "#liburan" -> "liburan"
 }
 
 const _incomeWords = {
@@ -60,12 +62,22 @@ QuickEntry? parseQuickInput(
   final lower = [for (final t in tokens) t.toLowerCase()];
   final used = <int>{};
 
+  // Labels: "#liburan" tokens. Taken out first so "#25rb" stays a label, not an amount.
+  final labels = <String>[];
+  for (var i = 0; i < tokens.length; i++) {
+    if (tokens[i].length > 1 && tokens[i].startsWith('#')) {
+      labels.add(tokens[i].substring(1).toLowerCase());
+      used.add(i);
+    }
+  }
+
   // Amount: prefer tokens that look like money ("25rb", "25.000") over bare numbers, then the larger one,
   // so "beli 2 kopi 30rb" reads 30rb, not 2.
   int? amount;
   var amountIndex = -1;
   var amountRank = -1;
   for (var i = 0; i < tokens.length; i++) {
+    if (used.contains(i)) continue;
     final value = parseAmount(tokens[i]);
     if (value == null) continue;
     final rank = _suffixOrGrouping.hasMatch(tokens[i]) ? 1 : 0;
@@ -127,5 +139,6 @@ QuickEntry? parseQuickInput(
     date: date,
     accountId: accountId,
     categoryId: income ? incomeCategory : expenseCategory,
+    labels: labels,
   );
 }

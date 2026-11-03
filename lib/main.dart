@@ -10,6 +10,7 @@ import 'categories_page.dart';
 import 'categorize.dart';
 import 'db.dart';
 import 'insights.dart';
+import 'labels_page.dart';
 import 'money.dart';
 import 'notifications.dart';
 import 'quick_input.dart';
@@ -173,13 +174,19 @@ class _HomePageState extends State<HomePage> {
           ),
           PopupMenuButton<String>(
             tooltip: 'Menu',
-            onSelected: (choice) => choice == 'categories'
-                ? Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const CategoriesPage()))
-                : _logout(),
+            onSelected: (choice) => switch (choice) {
+              'categories' => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const CategoriesPage())),
+              'labels' => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const LabelsPage())),
+              _ => _logout(),
+            },
             itemBuilder: (context) => const [
               PopupMenuItem(
                 value: 'categories',
                 child: ListTile(leading: Icon(Icons.category_outlined), title: Text('Kelola kategori')),
+              ),
+              PopupMenuItem(
+                value: 'labels',
+                child: ListTile(leading: Icon(Icons.sell_outlined), title: Text('Kelola label')),
               ),
               PopupMenuItem(
                 value: 'logout',
@@ -241,7 +248,9 @@ class RecordsTab extends StatelessWidget {
     return StreamBuilder(
       // ponytail: newest 500 only; add paging when a user has more history than that.
       stream: db.watch('''
-        SELECT r.*, a.name AS account_name, t.name AS target_name, c.name AS category_name
+        SELECT r.*, a.name AS account_name, t.name AS target_name, c.name AS category_name,
+          (SELECT group_concat('#' || l.name, ' ') FROM json_each(r.label_ids) j JOIN labels l ON l.id = j.value)
+            AS label_names
         FROM records r
         LEFT JOIN accounts a ON a.id = r.account_id
         LEFT JOIN accounts t ON t.id = r.transfer_account_id
@@ -265,6 +274,7 @@ class RecordsTab extends StatelessWidget {
               r['account_name'],
               date.format(DateTime.parse(r['occurred_at'] as String).toLocal()),
               if ((r['note'] as String?)?.isNotEmpty ?? false) r['note'],
+              ?r['label_names'],
             ].join(' · ');
             final amount = r['amount'] as int;
             return ListTile(
@@ -326,6 +336,7 @@ class Prefill {
     note: r['note'] as String?,
     date: DateTime.parse(r['occurred_at'] as String).toLocal(),
     source: (r['source'] as String?) ?? 'manual',
+    labelIds: labelIdsOf(r['label_ids']),
   );
 
   const Prefill({
@@ -344,6 +355,7 @@ class Prefill {
     this.plannedPaymentId,
     this.transferAccountId,
     this.nextDue,
+    this.labelIds = const [],
   });
 
   final String? recordId; // edit this record instead of inserting a new one
@@ -361,6 +373,7 @@ class Prefill {
   final String? plannedPaymentId; // bill being paid; moves on to [nextDue] once saved
   final DateTime? nextDue;
   final String? transferAccountId; // transfer into this account, e.g. a saving goal's account
+  final List<String> labelIds;
 }
 
 Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
@@ -379,19 +392,21 @@ Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
     'SELECT id, name, type, keywords FROM categories WHERE archived = 0 OR id = ? ORDER BY name',
     [prefill?.categoryId],
   );
+  final labels = await db.getAll('SELECT id, name FROM labels ORDER BY name COLLATE NOCASE');
   if (!context.mounted) return;
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    builder: (_) => RecordForm(accounts: accounts, categories: categories, prefill: prefill),
+    builder: (_) => RecordForm(accounts: accounts, categories: categories, labels: labels, prefill: prefill),
   );
 }
 
 class RecordForm extends StatefulWidget {
-  const RecordForm({super.key, required this.accounts, required this.categories, this.prefill});
+  const RecordForm({super.key, required this.accounts, required this.categories, required this.labels, this.prefill});
 
   final List<Map<String, dynamic>> accounts;
   final List<Map<String, dynamic>> categories;
+  final List<Map<String, dynamic>> labels;
   final Prefill? prefill;
 
   @override
@@ -406,6 +421,7 @@ class _RecordFormState extends State<RecordForm> {
   String? _targetId;
   String? _categoryId;
   DateTime _date = DateTime.now();
+  late Set<String> _labelIds = {...?widget.prefill?.labelIds};
 
   @override
   void initState() {
@@ -472,6 +488,7 @@ class _RecordFormState extends State<RecordForm> {
         transferAccountId: transferAccountId,
         transferAmount: transferAmount,
         note: note.isEmpty ? null : note,
+        labelIds: [..._labelIds],
       );
     } else {
       await insertRecord(
@@ -489,6 +506,7 @@ class _RecordFormState extends State<RecordForm> {
         inboxId: p?.inboxId,
         plannedPaymentId: p?.plannedPaymentId,
         nextDue: p?.nextDue,
+        labelIds: [..._labelIds],
       );
     }
     // Learn only from notes the user typed (manual or quick input): a notification title like
@@ -589,6 +607,8 @@ class _RecordFormState extends State<RecordForm> {
               }
             },
           ),
+          LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
+          const SizedBox(height: 12),
           if (_editing)
             Row(
               children: [
@@ -640,6 +660,7 @@ class _QuickInputBarState extends State<QuickInputBar> {
         entry.accountId ??
         accounts.map((a) => a['id'] as String).where((id) => id == last?['account_id']).firstOrNull ??
         accounts.first['id'] as String;
+    final labelIds = await resolveLabelIds(entry.labels); // "#liburan" creates the label if needed
     _text.clear();
     if (!mounted) return;
 
@@ -654,6 +675,7 @@ class _QuickInputBarState extends State<QuickInputBar> {
           note: entry.note,
           date: entry.date,
           source: 'nlp',
+          labelIds: labelIds,
         ),
       );
     }
@@ -667,6 +689,7 @@ class _QuickInputBarState extends State<QuickInputBar> {
       categoryId: entry.categoryId,
       note: entry.note.isEmpty ? null : entry.note,
       source: 'nlp',
+      labelIds: labelIds,
     );
     if (!mounted) return;
     final category = categories.firstWhere((c) => c['id'] == entry.categoryId)['name'];

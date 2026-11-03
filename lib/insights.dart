@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'db.dart';
+import 'labels_page.dart' show LabelChips;
 import 'main.dart' show Prefill, showRecordForm;
 import 'money.dart';
 import 'reports.dart';
@@ -69,18 +70,27 @@ class _ReportTabState extends State<ReportTab> {
     LEFT JOIN categories c ON c.id = r.category_id
     WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND r.type IN ('income', 'expense')
       AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?3)
+      AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(r.label_ids) l WHERE l.value = ?4))
     GROUP BY r.type, r.category_id''';
+
+  String? _labelId; // null = all records; otherwise only records with this label, e.g. a trip
+  final _labels = db.watch('SELECT id, name FROM labels ORDER BY name COLLATE NOCASE');
 
   Stream<MonthReport> _watch() {
     final (start, end) = periodRange('month', _month);
     final previous = DateTime(_month.year, _month.month - 1);
     return db
-        .watch(_sql, parameters: [_iso(previous), _iso(start), _iso(end)])
+        .watch(_sql, parameters: [_iso(previous), _iso(start), _iso(end), _labelId])
         .map((rows) => buildMonthReport(rows.toList()));
   }
 
   void _shift(int months) => setState(() {
     _month = DateTime(_month.year, _month.month + months);
+    _report = _watch();
+  });
+
+  void _filter(String? labelId) => setState(() {
+    _labelId = labelId;
     _report = _watch();
   });
 
@@ -101,6 +111,28 @@ class _ReportTabState extends State<ReportTab> {
               onPressed: isCurrent ? null : () => _shift(1),
             ),
           ],
+        ),
+        StreamBuilder(
+          stream: _labels,
+          builder: (context, snap) {
+            final labels = snap.data;
+            if (labels == null || labels.isEmpty) return const SizedBox.shrink();
+            // A deleted label can't stay selected: fall back to all records.
+            final value = labels.any((l) => l['id'] == _labelId) ? _labelId : null;
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: DropdownButtonFormField<String?>(
+                initialValue: value,
+                isDense: true,
+                decoration: const InputDecoration(labelText: 'Label', border: OutlineInputBorder(), isDense: true),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Semua transaksi')),
+                  for (final l in labels) DropdownMenuItem(value: l['id'] as String, child: Text('#${l['name']}')),
+                ],
+                onChanged: _filter,
+              ),
+            );
+          },
         ),
         Expanded(
           child: StreamBuilder(
@@ -370,15 +402,17 @@ class BudgetsTab extends StatelessWidget {
   const BudgetsTab({super.key});
 
   // Spending counts confirmed expenses in the budget's current period, on accounts that count
-  // towards statistics, limited to the budget's categories and accounts (empty list = all).
-  // ponytail: label filters are stored but not applied; no screen sets them yet.
+  // towards statistics, limited to the budget's categories, accounts and labels (empty list = all;
+  // a record matches a label filter when it carries any of those labels).
   static const _spentSql = '''
     SELECT COALESCE(SUM(r.amount), 0) AS spent
     FROM records r JOIN accounts a ON a.id = r.account_id
     WHERE r.type = 'expense' AND r.status = 'confirmed' AND a.exclude_from_stats = 0
       AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?2)
       AND (json_array_length(?3) = 0 OR r.category_id IN (SELECT value FROM json_each(?3)))
-      AND (json_array_length(?4) = 0 OR r.account_id IN (SELECT value FROM json_each(?4)))''';
+      AND (json_array_length(?4) = 0 OR r.account_id IN (SELECT value FROM json_each(?4)))
+      AND (json_array_length(?5) = 0 OR EXISTS (
+        SELECT 1 FROM json_each(r.label_ids) l WHERE l.value IN (SELECT value FROM json_each(?5))))''';
 
   Stream<List<_BudgetView>> _watch() => db
       .watch('SELECT * FROM budgets ORDER BY name', triggerOnTables: const ['budgets', 'records', 'accounts'])
@@ -393,6 +427,7 @@ class BudgetsTab extends StatelessWidget {
                 _iso(end),
                 b['category_ids'] ?? '[]',
                 b['account_ids'] ?? '[]',
+                b['label_ids'] ?? '[]',
               ]);
               return _BudgetView(b, spent['spent'] as int, end);
             }(),
@@ -878,18 +913,20 @@ Future<void> showBudgetForm(BuildContext context) async {
   final categories = await db.getAll(
     "SELECT id, name FROM categories WHERE type = 'expense' AND archived = 0 ORDER BY name",
   );
+  final labels = await db.getAll('SELECT id, name FROM labels ORDER BY name COLLATE NOCASE');
   if (!context.mounted) return;
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    builder: (_) => BudgetForm(categories: categories),
+    builder: (_) => BudgetForm(categories: categories, labels: labels),
   );
 }
 
 class BudgetForm extends StatefulWidget {
-  const BudgetForm({super.key, required this.categories});
+  const BudgetForm({super.key, required this.categories, required this.labels});
 
   final List<Map<String, dynamic>> categories;
+  final List<Map<String, dynamic>> labels;
 
   @override
   State<BudgetForm> createState() => _BudgetFormState();
@@ -900,6 +937,7 @@ class _BudgetFormState extends State<BudgetForm> {
   final _amount = TextEditingController();
   String _period = 'month';
   final _selected = <String>{};
+  var _labelIds = <String>{};
 
   Future<void> _save() async {
     final amount = parseAmount(_amount.text);
@@ -919,7 +957,7 @@ class _BudgetFormState extends State<BudgetForm> {
       '''
       INSERT INTO budgets (id, user_id, name, period, amount, currency, start_date,
         category_ids, account_ids, label_ids, created_at, updated_at)
-      VALUES (uuid(), ?, ?, ?, ?, 'IDR', ?, ?, '[]', '[]', ?, ?)''',
+      VALUES (uuid(), ?, ?, ?, ?, 'IDR', ?, ?, '[]', ?, ?, ?)''',
       [
         currentUserId,
         name,
@@ -927,6 +965,7 @@ class _BudgetFormState extends State<BudgetForm> {
         amount,
         DateFormat('yyyy-MM-dd').format(start),
         jsonEncode([..._selected]),
+        jsonEncode([..._labelIds]),
         now,
         now,
       ],
@@ -978,6 +1017,12 @@ class _BudgetFormState extends State<BudgetForm> {
               ),
             ),
           ),
+          if (widget.labels.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text('Label (opsional: hanya transaksi berlabel ini)', style: Theme.of(context).textTheme.labelMedium),
+            const SizedBox(height: 4),
+            LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
+          ],
           const SizedBox(height: 16),
           FilledButton(onPressed: _save, child: const Text('Simpan')),
         ],

@@ -136,6 +136,7 @@ Future<String> insertRecord({
   String? inboxId,
   String? plannedPaymentId,
   DateTime? nextDue,
+  List<String> labelIds = const [],
 }) {
   return db.writeTransaction((tx) async {
     final id = (await tx.get('SELECT uuid() AS id'))['id'] as String;
@@ -144,8 +145,8 @@ Future<String> insertRecord({
       '''
       INSERT INTO records (id, user_id, account_id, type, amount, currency, category_id,
         transfer_account_id, transfer_amount, note, occurred_at, status, source, source_ref,
-        planned_payment_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?)''',
+        planned_payment_id, label_ids, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?)''',
       [
         id,
         currentUserId,
@@ -161,6 +162,7 @@ Future<String> insertRecord({
         source,
         sourceRef,
         plannedPaymentId,
+        jsonEncode(labelIds),
         now,
         now,
       ],
@@ -204,10 +206,11 @@ Future<void> updateRecord(
   String? transferAccountId,
   int? transferAmount,
   String? note,
+  List<String> labelIds = const [],
 }) => db.execute(
   '''
   UPDATE records SET account_id = ?, type = ?, amount = ?, currency = ?, category_id = ?,
-    transfer_account_id = ?, transfer_amount = ?, note = ?, occurred_at = ?, updated_at = ?
+    transfer_account_id = ?, transfer_amount = ?, note = ?, label_ids = ?, occurred_at = ?, updated_at = ?
   WHERE id = ?''',
   [
     accountId,
@@ -218,6 +221,7 @@ Future<void> updateRecord(
     transferAccountId,
     transferAmount,
     note,
+    jsonEncode(labelIds),
     occurredAt.toUtc().toIso8601String(),
     nowIso(),
     id,

@@ -51,6 +51,14 @@ void main() {
     expect(parse('bensin 30rb kemarin')!.note, 'bensin');
   });
 
+  test('hashtags become labels and leave the note', () {
+    final e = parse('nasi padang 35rb #Liburan #bali-2026 pakai dana')!;
+    expect((e.amount, e.note, e.accountId), (3500000, 'nasi padang', 'dana'));
+    expect(e.labels, ['liburan', 'bali-2026']); // lists compare by identity inside records, so check apart
+    expect(parse('#25rb kopi 18rb')!.labels, ['25rb']); // a hashtag is never the amount
+    expect(parse('kopi 18rb #')!.labels, isEmpty); // a lone "#" is just a word
+  });
+
   test('unknown words leave the category empty for the user to pick', () {
     final e = parse('seblak 15rb')!;
     expect((e.categoryId, e.note), (null, 'seblak'));
