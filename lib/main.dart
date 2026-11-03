@@ -3,6 +3,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'categorize.dart';
 import 'db.dart';
 import 'money.dart';
 import 'notifications.dart';
@@ -10,9 +11,11 @@ import 'notifications.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (supabaseUrl.isEmpty || supabasePublishableKey.isEmpty || powersyncUrl.isEmpty) {
-    runApp(const MaterialApp(
-      home: Scaffold(body: Center(child: Text('Config missing: run with --dart-define-from-file=.env'))),
-    ));
+    runApp(
+      const MaterialApp(
+        home: Scaffold(body: Center(child: Text('Config missing: run with --dart-define-from-file=.env'))),
+      ),
+    );
     return;
   }
   await initializeDateFormatting('id_ID');
@@ -138,8 +141,8 @@ class _HomePageState extends State<HomePage> {
               final (icon, label) = s == null || !s.connected
                   ? (Icons.cloud_off, 'Offline: data aman di HP, sync saat online')
                   : (s.uploading || s.downloading)
-                      ? (Icons.cloud_sync, 'Menyinkronkan')
-                      : (Icons.cloud_done, 'Tersinkron');
+                  ? (Icons.cloud_sync, 'Menyinkronkan')
+                  : (Icons.cloud_done, 'Tersinkron');
               return IconButton(icon: Icon(icon), tooltip: label, onPressed: () => showMessage(context, label));
             },
           ),
@@ -170,7 +173,12 @@ class RecordsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(children: [const NotificationInbox(), Expanded(child: _records())]);
+    return Column(
+      children: [
+        const NotificationInbox(),
+        Expanded(child: _records()),
+      ],
+    );
   }
 
   Widget _records() {
@@ -207,10 +215,18 @@ class RecordsTab extends StatelessWidget {
               title: Text(title),
               subtitle: Text(subtitle),
               trailing: Text(
-                '${type == 'income' ? '+' : type == 'expense' ? '-' : ''}${formatAmount(amount)}',
+                '${type == 'income'
+                    ? '+'
+                    : type == 'expense'
+                    ? '-'
+                    : ''}${formatAmount(amount)}',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  color: type == 'income' ? Colors.green.shade700 : type == 'expense' ? Colors.red.shade700 : null,
+                  color: type == 'income'
+                      ? Colors.green.shade700
+                      : type == 'expense'
+                      ? Colors.red.shade700
+                      : null,
                 ),
               ),
               onLongPress: () => _confirmDelete(context, r['id'] as String),
@@ -239,14 +255,17 @@ class RecordsTab extends StatelessWidget {
 /// [fromInbox] is a row of the `inbox` table: the form is prefilled from the
 /// detected notification and the row is removed once the record is saved.
 Future<void> showRecordForm(BuildContext context, {Map<String, dynamic>? fromInbox}) async {
-  final accounts =
-      await db.getAll('SELECT id, name, currency, provider FROM accounts WHERE archived = 0 ORDER BY name');
+  final accounts = await db.getAll(
+    'SELECT id, name, currency, provider FROM accounts WHERE archived = 0 ORDER BY name',
+  );
   if (!context.mounted) return;
   if (accounts.isEmpty) {
     showMessage(context, 'Buat akun dulu di tab Akun.');
     return;
   }
-  final categories = await db.getAll('SELECT id, name, type FROM categories WHERE archived = 0 ORDER BY name');
+  final categories = await db.getAll(
+    'SELECT id, name, type, keywords FROM categories WHERE archived = 0 ORDER BY name',
+  );
   if (!context.mounted) return;
   await showModalBottomSheet(
     context: context,
@@ -286,6 +305,16 @@ class _RecordFormState extends State<RecordForm> {
     _date = DateTime.parse(n['posted_at'] as String).toLocal();
     final match = widget.accounts.where((a) => a['provider'] != null && a['provider'] == n['provider']);
     if (match.isNotEmpty) _accountId = match.first['id'] as String;
+    _categoryId = guessCategoryId('${n['title'] ?? ''}\n${n['text']}', _type, widget.categories);
+  }
+
+  // Typing a note fills an empty category, e.g. "bakso" -> Makan & Minum. Never overrides a choice.
+  bool _categoryPicked = false;
+
+  void _onNoteChanged(String note) {
+    if (_categoryPicked || _type == 'transfer') return;
+    final guess = guessCategoryId(note, _type, widget.categories);
+    if (guess != _categoryId) setState(() => _categoryId = guess);
   }
 
   Future<void> _save() async {
@@ -298,20 +327,25 @@ class _RecordFormState extends State<RecordForm> {
     final now = nowIso();
     final inbox = widget.fromInbox;
     await db.writeTransaction((tx) async {
-      await tx.execute('''
+      await tx.execute(
+        '''
         INSERT INTO records (id, user_id, account_id, type, amount, currency, category_id,
           transfer_account_id, transfer_amount, note, occurred_at, status, source, source_ref, created_at, updated_at)
-        VALUES (uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)''', [
-        currentUserId, _accountId, _type, amount, currency,
-        _type == 'transfer' ? null : _categoryId,
-        _type == 'transfer' ? _targetId : null,
-        _type == 'transfer' ? amount : null, // ponytail: same-currency transfers only; ask for received amount when currencies differ
-        _note.text.trim().isEmpty ? null : _note.text.trim(),
-        _date.toUtc().toIso8601String(),
-        inbox == null ? 'manual' : 'notification',
-        inbox?['ref'], // server-side unique index stops the same notification being recorded twice
-        now, now,
-      ]);
+        VALUES (uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)''',
+        [
+          currentUserId, _accountId, _type, amount, currency,
+          _type == 'transfer' ? null : _categoryId,
+          _type == 'transfer' ? _targetId : null,
+          _type == 'transfer'
+              ? amount
+              : null, // ponytail: same-currency transfers only; ask for received amount when currencies differ
+          _note.text.trim().isEmpty ? null : _note.text.trim(),
+          _date.toUtc().toIso8601String(),
+          inbox == null ? 'manual' : 'notification',
+          inbox?['ref'], // server-side unique index stops the same notification being recorded twice
+          now, now,
+        ],
+      );
       if (inbox != null) await tx.execute('DELETE FROM inbox WHERE id = ?', [inbox['id']]);
     });
     if (mounted) Navigator.pop(context);
@@ -337,7 +371,8 @@ class _RecordFormState extends State<RecordForm> {
             selected: {_type},
             onSelectionChanged: (s) => setState(() {
               _type = s.first;
-              _categoryId = null;
+              _categoryPicked = false;
+              _categoryId = _type == 'transfer' ? null : guessCategoryId(_note.text, _type, widget.categories);
             }),
           ),
           TextField(
@@ -361,16 +396,26 @@ class _RecordFormState extends State<RecordForm> {
             )
           else
             DropdownButtonFormField(
-              key: ValueKey(_type), // reset when switching income/expense
+              key: ValueKey('$_type/$_categoryId'), // rebuild when the type or the guessed category changes
               initialValue: _categoryId,
               decoration: const InputDecoration(labelText: 'Kategori'),
               items: [
                 for (final c in categories)
                   DropdownMenuItem(value: c['id'] as String, child: Text(c['name'] as String)),
               ],
-              onChanged: (v) => setState(() => _categoryId = v),
+              onChanged: (v) => setState(() {
+                _categoryId = v;
+                _categoryPicked = true;
+              }),
             ),
-          TextField(controller: _note, decoration: const InputDecoration(labelText: 'Catatan (opsional)')),
+          TextField(
+            controller: _note,
+            decoration: const InputDecoration(
+              labelText: 'Catatan (opsional)',
+              hintText: 'contoh: bakso, bensin, token PLN',
+            ),
+            onChanged: _onNoteChanged,
+          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.event),
@@ -462,10 +507,7 @@ class _NotificationInboxState extends State<NotificationInbox> with WidgetsBindi
               ),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 260),
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [for (final n in rows) _item(context, n)],
-                ),
+                child: ListView(shrinkWrap: true, children: [for (final n in rows) _item(context, n)]),
               ),
             ],
           ),
@@ -479,8 +521,16 @@ class _NotificationInboxState extends State<NotificationInbox> with WidgetsBindi
     final type = n['type'] as String?;
     return ListTile(
       leading: Icon(
-        type == 'income' ? Icons.south_west : type == 'expense' ? Icons.north_east : Icons.help_outline,
-        color: type == 'income' ? Colors.green.shade700 : type == 'expense' ? Colors.red.shade700 : null,
+        type == 'income'
+            ? Icons.south_west
+            : type == 'expense'
+            ? Icons.north_east
+            : Icons.help_outline,
+        color: type == 'income'
+            ? Colors.green.shade700
+            : type == 'expense'
+            ? Colors.red.shade700
+            : null,
       ),
       title: Text('${provider ?? n['package']} · ${formatAmount(n['amount'] as int)}'),
       subtitle: Text(n['text'] as String, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -591,11 +641,13 @@ class _AccountFormState extends State<AccountForm> {
     final parsed = raw.isEmpty || raw == '0' ? 0 : parseAmount(raw.replaceFirst('-', ''));
     if (parsed == null) return showMessage(context, 'Saldo awal tidak valid.');
     final now = nowIso();
-    await db.execute('''
+    await db.execute(
+      '''
       INSERT INTO accounts (id, user_id, name, type, provider, currency, initial_balance,
         archived, exclude_from_stats, created_at, updated_at)
       VALUES (uuid(), ?, ?, ?, ?, 'IDR', ?, 0, 0, ?, ?)''',
-        [currentUserId, name, _type, _provider, negative ? -parsed : parsed, now, now]);
+      [currentUserId, name, _type, _provider, negative ? -parsed : parsed, now, now],
+    );
     if (mounted) Navigator.pop(context);
   }
 
@@ -623,7 +675,10 @@ class _AccountFormState extends State<AccountForm> {
                 ),
             ],
           ),
-          TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nama akun')),
+          TextField(
+            controller: _name,
+            decoration: const InputDecoration(labelText: 'Nama akun'),
+          ),
           DropdownButtonFormField(
             key: ValueKey(_type),
             initialValue: _type,
