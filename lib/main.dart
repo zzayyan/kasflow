@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'bills.dart';
+import 'categories_page.dart';
 import 'categorize.dart';
 import 'db.dart';
 import 'insights.dart';
@@ -170,7 +171,22 @@ class _HomePageState extends State<HomePage> {
               return IconButton(icon: Icon(icon), tooltip: label, onPressed: () => showMessage(context, label));
             },
           ),
-          IconButton(icon: const Icon(Icons.logout), tooltip: 'Keluar', onPressed: _logout),
+          PopupMenuButton<String>(
+            tooltip: 'Menu',
+            onSelected: (choice) => choice == 'categories'
+                ? Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const CategoriesPage()))
+                : _logout(),
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'categories',
+                child: ListTile(leading: Icon(Icons.category_outlined), title: Text('Kelola kategori')),
+              ),
+              PopupMenuItem(
+                value: 'logout',
+                child: ListTile(leading: Icon(Icons.logout), title: Text('Keluar')),
+              ),
+            ],
+          ),
         ],
       ),
       body: const [RecordsTab(), AccountsTab(), BillsTab(), PlansTab(), ReportTab()][_tab],

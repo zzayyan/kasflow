@@ -37,26 +37,84 @@ String? keywordFromNote(String note) {
   return keyword.length <= 30 && RegExp(r'[a-z]').hasMatch(keyword) ? keyword : null;
 }
 
+/// A keyword typed in the category form: lowercase, single spaces, at most 30 characters and at
+/// least one letter ("7-Eleven" -> "7-eleven"). Null when unusable.
+String? normalizeKeyword(String raw) {
+  final k = raw.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  return k.isEmpty || k.length > 30 || !RegExp(r'[a-z]').hasMatch(k) ? null : k;
+}
+
+/// One keyword, one category: gives [keywords] to [targetId] and removes them from every other
+/// category in [current] (id -> keywords, same type). Returns only the lists that changed.
+Map<String, List<String>> reassignKeywords(Map<String, List<String>> current, String targetId, List<String> keywords) {
+  bool same(List<String> a, List<String> b) =>
+      a.length == b.length && Iterable.generate(a.length).every((i) => a[i] == b[i]);
+  return {
+    for (final e in {...current, targetId: current[targetId] ?? const <String>[]}.entries)
+      if (e.key == targetId ? keywords : e.value.where((k) => !keywords.contains(k)).toList() case final next
+          when !same(next, e.value))
+        e.key: next,
+  };
+}
+
+/// Writes [keywords] to [categoryId] and takes them away from the other categories of its type.
+/// Runs inside [tx], a PowerSync write transaction.
+Future<void> _assignKeywords(
+  dynamic tx,
+  String categoryId,
+  List<String> Function(List<String> current) keywords,
+) async {
+  final target = await tx.get('SELECT type FROM categories WHERE id = ?', [categoryId]);
+  final rows = await tx.getAll('SELECT id, keywords FROM categories WHERE type = ?', [target['type']]);
+  final current = {for (final r in rows) r['id'] as String: _keywords(r['keywords'])};
+  final changed = reassignKeywords(current, categoryId, keywords(current[categoryId] ?? const []));
+  for (final e in changed.entries) {
+    await tx.execute('UPDATE categories SET keywords = ?, updated_at = ? WHERE id = ?', [
+      jsonEncode(e.value),
+      nowIso(),
+      e.key,
+    ]);
+  }
+}
+
 /// Learning from corrections: the user picked [categoryId] for [note], so the note's keyword now
 /// points there and is removed from other categories of the same type. Synced like any edit.
 Future<void> learnKeyword(String note, String categoryId) async {
   final keyword = keywordFromNote(note);
   if (keyword == null) return;
-  await db.writeTransaction((tx) async {
-    final target = await tx.get('SELECT type FROM categories WHERE id = ?', [categoryId]);
-    final rows = await tx.getAll('SELECT id, keywords FROM categories WHERE type = ?', [target['type']]);
-    for (final r in rows) {
-      final current = _keywords(r['keywords']);
-      final updated = r['id'] == categoryId
-          ? (current.contains(keyword) ? current : [...current, keyword])
-          : current.where((k) => k != keyword).toList();
-      if (updated.length != current.length) {
-        await tx.execute('UPDATE categories SET keywords = ?, updated_at = ? WHERE id = ?', [
-          jsonEncode(updated),
-          nowIso(),
-          r['id'],
-        ]);
-      }
+  await db.writeTransaction(
+    (tx) => _assignKeywords(tx, categoryId, (current) => current.contains(keyword) ? current : [...current, keyword]),
+  );
+}
+
+/// Creates ([id] null) or edits a category and returns its id. The type of an existing category
+/// never changes: its records would end up under a category of the other type.
+Future<String> saveCategory({
+  String? id,
+  required String name,
+  required String type,
+  required String? needLevel,
+  required List<String> keywords,
+}) {
+  return db.writeTransaction((tx) async {
+    final now = nowIso();
+    final categoryId = id ?? (await tx.get('SELECT uuid() AS id'))['id'] as String;
+    if (id == null) {
+      await tx.execute(
+        '''
+        INSERT INTO categories (id, user_id, name, type, need_level, keywords, archived, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, '[]', 0, ?, ?)''',
+        [categoryId, currentUserId, name, type, needLevel, now, now],
+      );
+    } else {
+      await tx.execute('UPDATE categories SET name = ?, need_level = ?, updated_at = ? WHERE id = ?', [
+        name,
+        needLevel,
+        now,
+        id,
+      ]);
     }
+    await _assignKeywords(tx, categoryId, (_) => keywords);
+    return categoryId;
   });
 }

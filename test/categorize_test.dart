@@ -30,6 +30,31 @@ void main() {
     expect(keywordFromNote('makan siang bareng tim kantor'), null);
   });
 
+  test('normalizeKeyword', () {
+    expect(normalizeKeyword('  Tiktok   Shop '), 'tiktok shop');
+    expect(normalizeKeyword('7-Eleven'), '7-eleven');
+    expect(normalizeKeyword('123'), null);
+    expect(normalizeKeyword(''), null);
+    expect(normalizeKeyword('x' * 31), null);
+  });
+
+  test('reassignKeywords: one keyword, one category; only changed lists returned', () {
+    final current = {
+      'makan': ['bakso', 'seblak'],
+      'pendidikan': ['buku'],
+      'hiburan': ['game'],
+    };
+    expect(reassignKeywords(current, 'makan', ['bakso', 'buku']), {
+      'makan': ['bakso', 'buku'],
+      'pendidikan': <String>[],
+    });
+    expect(reassignKeywords(current, 'baru', ['game']), {
+      'hiburan': <String>[],
+      'baru': ['game'],
+    });
+    expect(reassignKeywords(current, 'hiburan', ['game']), isEmpty);
+  });
+
   test('only categories of the record type are considered', () {
     expect(guessCategoryId('Bonus kopi gratis', 'expense', categories), 'makan');
     expect(guessCategoryId('Gaji bulan November masuk', 'income', categories), 'gaji');
