@@ -41,7 +41,16 @@ final _amountPattern = RegExp(r'(?:rp|idr)\.?\s?(\d[\d.,]*\d|\d)', caseSensitive
 final _promoPattern = RegExp(r'promo|voucher|diskon|kupon|hingga|s\.d\.?|s/d', caseSensitive: false);
 const _incomeWords = ['masuk', 'diterima', 'menerima', 'terima', 'kredit', 'cashback', 'refund', 'pengembalian'];
 const _expenseWords = [
-  'bayar', 'transfer ke', 'kirim', 'debit', 'pembelian', 'beli', 'tarik tunai', 'keluar', 'terpotong', 'dipotong',
+  'bayar',
+  'transfer ke',
+  'kirim',
+  'debit',
+  'pembelian',
+  'beli',
+  'tarik tunai',
+  'keluar',
+  'terpotong',
+  'dipotong',
 ];
 
 /// Returns null for notifications that are not a transaction (no amount, or a promotion).
@@ -89,18 +98,21 @@ Future<int> importNotifications() async {
       [ref],
     );
     if (seen != null) continue;
-    await db.execute('''
+    await db.execute(
+      '''
       INSERT INTO inbox (id, ref, package, provider, title, text, amount, type, posted_at)
-      VALUES (uuid(), ?, ?, ?, ?, ?, ?, ?, ?)''', [
-      ref,
-      n['package'],
-      providerByPackage[n['package']],
-      n['title'],
-      n['text'],
-      parsed.amount,
-      parsed.type,
-      DateTime.fromMillisecondsSinceEpoch(n['posted_at'] as int).toUtc().toIso8601String(),
-    ]);
+      VALUES (uuid(), ?, ?, ?, ?, ?, ?, ?, ?)''',
+      [
+        ref,
+        n['package'],
+        providerByPackage[n['package']],
+        n['title'],
+        n['text'],
+        parsed.amount,
+        parsed.type,
+        DateTime.fromMillisecondsSinceEpoch(n['posted_at'] as int).toUtc().toIso8601String(),
+      ],
+    );
     added++;
   }
   await batch.delete();

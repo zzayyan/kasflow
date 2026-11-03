@@ -7,6 +7,7 @@ import 'categorize.dart';
 import 'db.dart';
 import 'money.dart';
 import 'notifications.dart';
+import 'quick_input.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -175,6 +176,7 @@ class RecordsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        const QuickInputBar(),
         const NotificationInbox(),
         Expanded(child: _records()),
       ],
@@ -252,9 +254,36 @@ class RecordsTab extends StatelessWidget {
   }
 }
 
-/// [fromInbox] is a row of the `inbox` table: the form is prefilled from the
-/// detected notification and the row is removed once the record is saved.
-Future<void> showRecordForm(BuildContext context, {Map<String, dynamic>? fromInbox}) async {
+/// Values to start the record form with, from a detected notification or from quick input.
+class Prefill {
+  const Prefill({
+    this.amount,
+    this.type,
+    this.accountId,
+    this.provider,
+    this.categoryId,
+    this.note,
+    this.date,
+    this.guessText,
+    this.source = 'manual',
+    this.sourceRef,
+    this.inboxId,
+  });
+
+  final int? amount;
+  final String? type;
+  final String? accountId;
+  final String? provider; // picks the account with this preset when accountId is null
+  final String? categoryId;
+  final String? note;
+  final DateTime? date;
+  final String? guessText; // text to guess the category from when categoryId is null
+  final String source;
+  final String? sourceRef;
+  final String? inboxId; // inbox row to remove once the record is saved
+}
+
+Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
   final accounts = await db.getAll(
     'SELECT id, name, currency, provider FROM accounts WHERE archived = 0 ORDER BY name',
   );
@@ -270,16 +299,16 @@ Future<void> showRecordForm(BuildContext context, {Map<String, dynamic>? fromInb
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    builder: (_) => RecordForm(accounts: accounts, categories: categories, fromInbox: fromInbox),
+    builder: (_) => RecordForm(accounts: accounts, categories: categories, prefill: prefill),
   );
 }
 
 class RecordForm extends StatefulWidget {
-  const RecordForm({super.key, required this.accounts, required this.categories, this.fromInbox});
+  const RecordForm({super.key, required this.accounts, required this.categories, this.prefill});
 
   final List<Map<String, dynamic>> accounts;
   final List<Map<String, dynamic>> categories;
-  final Map<String, dynamic>? fromInbox;
+  final Prefill? prefill;
 
   @override
   State<RecordForm> createState() => _RecordFormState();
@@ -297,15 +326,17 @@ class _RecordFormState extends State<RecordForm> {
   @override
   void initState() {
     super.initState();
-    final n = widget.fromInbox;
-    if (n == null) return;
-    _amount.text = NumberFormat.decimalPattern('id_ID').format((n['amount'] as int) / 100);
-    _type = (n['type'] as String?) ?? 'expense';
-    _note.text = (n['title'] as String?) ?? '';
-    _date = DateTime.parse(n['posted_at'] as String).toLocal();
-    final match = widget.accounts.where((a) => a['provider'] != null && a['provider'] == n['provider']);
-    if (match.isNotEmpty) _accountId = match.first['id'] as String;
-    _categoryId = guessCategoryId('${n['title'] ?? ''}\n${n['text']}', _type, widget.categories);
+    final p = widget.prefill;
+    if (p == null) return;
+    if (p.amount != null) _amount.text = NumberFormat.decimalPattern('id_ID').format(p.amount! / 100);
+    _type = p.type ?? 'expense';
+    _note.text = p.note ?? '';
+    _date = p.date ?? _date;
+    final account = widget.accounts
+        .where((a) => p.accountId != null ? a['id'] == p.accountId : p.provider != null && a['provider'] == p.provider)
+        .firstOrNull;
+    if (account != null) _accountId = account['id'] as String;
+    _categoryId = p.categoryId ?? guessCategoryId(p.guessText ?? _note.text, _type, widget.categories);
   }
 
   // Typing a note fills an empty category, e.g. "bakso" -> Makan & Minum. Never overrides a choice.
@@ -323,31 +354,31 @@ class _RecordFormState extends State<RecordForm> {
     if (_type == 'transfer' && (_targetId == null || _targetId == _accountId)) {
       return showMessage(context, 'Pilih akun tujuan yang berbeda.');
     }
-    final currency = widget.accounts.firstWhere((a) => a['id'] == _accountId)['currency'];
-    final now = nowIso();
-    final inbox = widget.fromInbox;
-    await db.writeTransaction((tx) async {
-      await tx.execute(
-        '''
-        INSERT INTO records (id, user_id, account_id, type, amount, currency, category_id,
-          transfer_account_id, transfer_amount, note, occurred_at, status, source, source_ref, created_at, updated_at)
-        VALUES (uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)''',
-        [
-          currentUserId, _accountId, _type, amount, currency,
-          _type == 'transfer' ? null : _categoryId,
-          _type == 'transfer' ? _targetId : null,
-          _type == 'transfer'
-              ? amount
-              : null, // ponytail: same-currency transfers only; ask for received amount when currencies differ
-          _note.text.trim().isEmpty ? null : _note.text.trim(),
-          _date.toUtc().toIso8601String(),
-          inbox == null ? 'manual' : 'notification',
-          inbox?['ref'], // server-side unique index stops the same notification being recorded twice
-          now, now,
-        ],
-      );
-      if (inbox != null) await tx.execute('DELETE FROM inbox WHERE id = ?', [inbox['id']]);
-    });
+    final currency = widget.accounts.firstWhere((a) => a['id'] == _accountId)['currency'] as String;
+    final p = widget.prefill;
+    final note = _note.text.trim();
+    final transfer = _type == 'transfer';
+    await insertRecord(
+      accountId: _accountId,
+      type: _type,
+      amount: amount,
+      currency: currency,
+      occurredAt: _date,
+      categoryId: transfer ? null : _categoryId,
+      transferAccountId: transfer ? _targetId : null,
+      // ponytail: same-currency transfers only; ask for the received amount when currencies differ.
+      transferAmount: transfer ? amount : null,
+      note: note.isEmpty ? null : note,
+      source: p?.source ?? 'manual',
+      sourceRef: p?.sourceRef,
+      inboxId: p?.inboxId,
+    );
+    // Learn only from notes the user typed: a notification title like "Pembayaran berhasil" says nothing
+    // about the category. Skip when the keywords already led to this category.
+    final picked = _categoryId;
+    if (_categoryPicked && picked != null && p?.inboxId == null && note.isNotEmpty) {
+      if (guessCategoryId(note, _type, widget.categories) != picked) await learnKeyword(note, picked);
+    }
     if (mounted) Navigator.pop(context);
   }
 
@@ -435,6 +466,94 @@ class _RecordFormState extends State<RecordForm> {
           ),
           FilledButton(onPressed: _save, child: const Text('Simpan')),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- quick input (B2)
+
+class QuickInputBar extends StatefulWidget {
+  const QuickInputBar({super.key});
+
+  @override
+  State<QuickInputBar> createState() => _QuickInputBarState();
+}
+
+class _QuickInputBarState extends State<QuickInputBar> {
+  final _text = TextEditingController();
+
+  Future<void> _submit() async {
+    final input = _text.text.trim();
+    if (input.isEmpty) return;
+    final accounts = await db.getAll('SELECT id, name, provider, currency FROM accounts WHERE archived = 0');
+    final categories = await db.getAll('SELECT id, name, type, keywords FROM categories WHERE archived = 0');
+    if (!mounted) return;
+    if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu di tab Akun.');
+    final entry = parseQuickInput(input, accounts: accounts, categories: categories);
+    if (entry == null) return showMessage(context, 'Nominal tidak ditemukan. Contoh: bakso 25rb pakai dana');
+
+    // No account named: use the one from the latest record, so a daily wallet needs no typing.
+    final last = await db.getOptional('SELECT account_id FROM records ORDER BY created_at DESC LIMIT 1');
+    final accountId =
+        entry.accountId ??
+        accounts.map((a) => a['id'] as String).where((id) => id == last?['account_id']).firstOrNull ??
+        accounts.first['id'] as String;
+    _text.clear();
+    if (!mounted) return;
+
+    if (entry.categoryId == null) {
+      // Unknown words: let the user pick, which also teaches the keyword for next time.
+      return showRecordForm(
+        context,
+        prefill: Prefill(
+          amount: entry.amount,
+          type: entry.type,
+          accountId: accountId,
+          note: entry.note,
+          date: entry.date,
+          source: 'nlp',
+        ),
+      );
+    }
+    final account = accounts.firstWhere((a) => a['id'] == accountId);
+    final id = await insertRecord(
+      accountId: accountId,
+      type: entry.type,
+      amount: entry.amount,
+      currency: account['currency'] as String,
+      occurredAt: entry.date,
+      categoryId: entry.categoryId,
+      note: entry.note.isEmpty ? null : entry.note,
+      source: 'nlp',
+    );
+    if (!mounted) return;
+    final category = categories.firstWhere((c) => c['id'] == entry.categoryId)['name'];
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Tersimpan: $category · ${formatAmount(entry.amount)} · ${account['name']}'),
+        action: SnackBarAction(
+          label: 'Batalkan',
+          onPressed: () => db.execute('DELETE FROM records WHERE id = ?', [id]),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: TextField(
+        controller: _text,
+        textInputAction: TextInputAction.send,
+        onSubmitted: (_) => _submit(),
+        decoration: InputDecoration(
+          hintText: 'Catat cepat: bakso 25rb pakai dana',
+          border: const OutlineInputBorder(),
+          isDense: true,
+          suffixIcon: IconButton(icon: const Icon(Icons.send), tooltip: 'Simpan', onPressed: _submit),
+        ),
       ),
     );
   }
@@ -539,7 +658,20 @@ class _NotificationInboxState extends State<NotificationInbox> with WidgetsBindi
         tooltip: 'Abaikan',
         onPressed: () => db.execute('DELETE FROM inbox WHERE id = ?', [n['id']]),
       ),
-      onTap: () => showRecordForm(context, fromInbox: n),
+      onTap: () => showRecordForm(
+        context,
+        prefill: Prefill(
+          amount: n['amount'] as int,
+          type: type,
+          provider: n['provider'] as String?,
+          note: n['title'] as String?,
+          date: DateTime.parse(n['posted_at'] as String).toLocal(),
+          guessText: '${n['title'] ?? ''}\n${n['text']}',
+          source: 'notification',
+          sourceRef: n['ref'] as String, // server-side unique index stops the same notification being recorded twice
+          inboxId: n['id'] as String,
+        ),
+      ),
     );
   }
 }

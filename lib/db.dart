@@ -117,3 +117,50 @@ Future<bool> logout() async {
   await db.disconnectAndClear(); // the next user on this phone must not see this user's data
   return true;
 }
+
+/// Inserts a confirmed record and returns its id. [inboxId] removes the notification
+/// it came from in the same transaction, so a crash can't leave both or neither.
+Future<String> insertRecord({
+  required String accountId,
+  required String type,
+  required int amount,
+  required String currency,
+  required DateTime occurredAt,
+  String? categoryId,
+  String? transferAccountId,
+  int? transferAmount,
+  String? note,
+  String source = 'manual',
+  String? sourceRef,
+  String? inboxId,
+}) {
+  return db.writeTransaction((tx) async {
+    final id = (await tx.get('SELECT uuid() AS id'))['id'] as String;
+    final now = nowIso();
+    await tx.execute(
+      '''
+      INSERT INTO records (id, user_id, account_id, type, amount, currency, category_id,
+        transfer_account_id, transfer_amount, note, occurred_at, status, source, source_ref, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?)''',
+      [
+        id,
+        currentUserId,
+        accountId,
+        type,
+        amount,
+        currency,
+        categoryId,
+        transferAccountId,
+        transferAmount,
+        note,
+        occurredAt.toUtc().toIso8601String(),
+        source,
+        sourceRef,
+        now,
+        now,
+      ],
+    );
+    if (inboxId != null) await tx.execute('DELETE FROM inbox WHERE id = ?', [inboxId]);
+    return id;
+  });
+}

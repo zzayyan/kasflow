@@ -22,6 +22,14 @@ void main() {
     expect(guessCategoryId('Pembayaran Grab berhasil', 'expense', categories), 'transport');
   });
 
+  test('keywordFromNote keeps short typed phrases only', () {
+    expect(keywordFromNote('Mixue'), 'mixue');
+    expect(keywordFromNote('  es teh  manis '), 'es teh manis');
+    expect(keywordFromNote('seblak 15rb'), 'seblak');
+    expect(keywordFromNote('25rb'), null);
+    expect(keywordFromNote('makan siang bareng tim kantor'), null);
+  });
+
   test('only categories of the record type are considered', () {
     expect(guessCategoryId('Bonus kopi gratis', 'expense', categories), 'makan');
     expect(guessCategoryId('Gaji bulan November masuk', 'income', categories), 'gaji');
