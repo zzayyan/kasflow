@@ -93,8 +93,8 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Beranda draws its own header (greeting, sync, menu), as in the design.
-      appBar: _tab == 0
+      // Beranda and Transaksi draw their own header, as in the design; the menu sits on Beranda.
+      appBar: _tab <= 1
           ? null
           : AppBar(
               title: Text(const ['Beranda', 'Transaksi', 'Tagihan', 'Rencana', 'Laporan'][_tab]),

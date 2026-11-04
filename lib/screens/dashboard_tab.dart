@@ -536,32 +536,6 @@ class _InboxCard extends StatelessWidget {
 
 // ---------------------------------------------------------------- latest records
 
-// Icons for the default categories (supabase/migrations/0001_init.sql), matched on the name so
-// renamed or new categories still get one when the word fits. First match wins.
-const _categoryIcons = [
-  ('makan', Icons.restaurant_outlined),
-  ('belanja online', Icons.shopping_bag_outlined),
-  ('belanja', Icons.shopping_cart_outlined),
-  ('transport', Icons.directions_car_outlined),
-  ('tagihan', Icons.bolt_outlined),
-  ('tinggal', Icons.home_outlined),
-  ('kesehatan', Icons.medical_services_outlined),
-  ('hiburan', Icons.movie_outlined),
-  ('pendidikan', Icons.school_outlined),
-  ('sedekah', Icons.volunteer_activism_outlined),
-  ('hadiah', Icons.card_giftcard_outlined),
-  ('gaji', Icons.payments_outlined),
-];
-
-IconData _iconFor(Map<String, dynamic> r) {
-  if (r['type'] == 'transfer') return Icons.swap_horiz;
-  final name = ((r['category_name'] as String?) ?? '').toLowerCase();
-  for (final (word, icon) in _categoryIcons) {
-    if (name.contains(word)) return icon;
-  }
-  return r['type'] == 'income' ? Icons.account_balance_wallet_outlined : Icons.receipt_outlined;
-}
-
 String _dayLabel(DateTime day, DateTime now) {
   final days = DateTime(now.year, now.month, now.day).difference(DateTime(day.year, day.month, day.day)).inDays;
   return switch (days) {
@@ -622,84 +596,13 @@ class _RecentRecords extends StatelessWidget {
               children: [
                 for (final (i, r) in records.indexed) ...[
                   if (i > 0) const Divider(indent: 16, endIndent: 16),
-                  _RecordRow(r, now: now),
+                  RecordRow(r, detail: _dayLabel(DateTime.parse(r['occurred_at'] as String).toLocal(), now)),
                 ],
               ],
             ),
           ),
         ),
       ],
-    );
-  }
-}
-
-class _RecordRow extends StatelessWidget {
-  const _RecordRow(this.r, {required this.now});
-
-  final Map<String, dynamic> r;
-  final DateTime now;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = AppColors.of(context);
-    final type = r['type'] as String;
-    final category = type == 'transfer'
-        ? 'Transfer ke ${r['target_name'] ?? '?'}'
-        : (r['category_name'] as String?) ?? 'Tanpa kategori';
-    final note = (r['note'] as String?)?.trim();
-    final title = note == null || note.isEmpty ? category : note;
-    final subtitle = title == category ? (r['account_name'] as String? ?? '') : category;
-    final amount = formatAmount(r['amount'] as int);
-    final (text, color) = switch (type) {
-      'income' => ('+$amount', c.income),
-      'expense' => ('−$amount', c.ink),
-      _ => (amount, c.ink),
-    };
-    final (bg, fg) = type == 'income' ? (c.primarySoft, c.primary) : (c.surfaceMuted, c.ink);
-    return InkWell(
-      onTap: () => showRecordForm(context, prefill: Prefill.fromRecord(r)),
-      onLongPress: () => confirmDeleteRecord(context, r['id'] as String),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-              child: Icon(_iconFor(r), size: 20, color: fg),
-            ),
-            const SizedBox(width: AppSpace.gap),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: AppText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: AppText.caption.copyWith(color: c.inkMuted),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: AppSpace.gap),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(text, style: AppText.amount.copyWith(color: color)),
-                const SizedBox(height: 2),
-                Text(
-                  _dayLabel(DateTime.parse(r['occurred_at'] as String).toLocal(), now),
-                  style: AppText.caption.copyWith(color: c.inkMuted),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

@@ -7,6 +7,37 @@ import 'theme.dart';
 void showMessage(BuildContext context, String text) =>
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
+/// "Tersimpan" with what was saved and a way back (Geser + snackbar artboard).
+void showDone(BuildContext context, String title, String detail, {required VoidCallback onUndo}) {
+  final c = AppColors.of(context);
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(color: c.heroChip, shape: BoxShape.circle),
+            child: Icon(Icons.check, size: 18, color: c.onHeroChip),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title, style: AppText.bodyStrong.copyWith(fontSize: 14)),
+                Text(detail, style: AppText.caption, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+        ],
+      ),
+      action: SnackBarAction(label: 'Batalkan', onPressed: onUndo),
+    ),
+  );
+}
+
 /// Chart and status colors. Bars, need levels and the "good" delta come from the design
 /// tokens in theme.dart (AppColors), so they follow light and dark mode. Need-level colors are
 /// close in hue, so every colored part is listed with its name and amount beside it.

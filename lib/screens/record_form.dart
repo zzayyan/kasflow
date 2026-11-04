@@ -4,8 +4,11 @@ import 'package:intl/intl.dart';
 import '../categorize.dart';
 import '../db.dart';
 import '../money.dart';
+import '../quick_input.dart';
+import '../theme.dart';
 import '../ui.dart';
 import 'labels_page.dart';
+import 'records_tab.dart';
 
 /// Returns true when the record was deleted.
 Future<bool> confirmDeleteRecord(BuildContext context, String id) async {
@@ -79,10 +82,12 @@ class Prefill {
 }
 
 Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
-  // Archived accounts and categories stay selectable when the record being edited uses them;
-  // a dropdown whose current value is missing from its items would throw.
+  // Archived accounts and categories stay selectable when the record being edited uses them.
   final accounts = await db.getAll(
-    'SELECT id, name, currency, provider FROM accounts WHERE archived = 0 OR id IN (?, ?) ORDER BY name',
+    '''
+    SELECT a.id, a.name, a.currency, a.provider, b.balance
+    FROM accounts a JOIN ($accountBalancesSql) b ON b.id = a.id
+    WHERE a.archived = 0 OR a.id IN (?, ?) ORDER BY a.name''',
     [prefill?.accountId, prefill?.transferAccountId],
   );
   if (!context.mounted) return;
@@ -90,16 +95,21 @@ Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
     showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
     return;
   }
+  // Most used first, so the quick chips under the form hold the likely picks.
   final categories = await db.getAll(
-    'SELECT id, name, type, keywords FROM categories WHERE archived = 0 OR id = ? ORDER BY name',
+    '''
+    SELECT c.id, c.name, c.type, c.keywords FROM categories c
+    WHERE c.archived = 0 OR c.id = ?
+    ORDER BY (SELECT COUNT(*) FROM records r WHERE r.category_id = c.id) DESC, c.name''',
     [prefill?.categoryId],
   );
   final labels = await db.getAll('SELECT id, name FROM labels ORDER BY name COLLATE NOCASE');
   if (!context.mounted) return;
-  await showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    builder: (_) => RecordForm(accounts: accounts, categories: categories, labels: labels, prefill: prefill),
+  await Navigator.push(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => RecordForm(accounts: accounts, categories: categories, labels: labels, prefill: prefill),
+    ),
   );
 }
 
@@ -116,8 +126,10 @@ class RecordForm extends StatefulWidget {
 }
 
 class _RecordFormState extends State<RecordForm> {
+  final _quick = TextEditingController();
   final _amount = TextEditingController();
   final _note = TextEditingController();
+  List<String> _quickLabels = const []; // "#liburan" typed in the quick field, created on save
   String _type = 'expense';
   late String _accountId = widget.accounts.first['id'] as String;
   String? _targetId;
@@ -164,6 +176,89 @@ class _RecordFormState extends State<RecordForm> {
     if (guess != _categoryId) setState(() => _categoryId = guess);
   }
 
+  // Only for a fresh record that nothing filled in yet (not an edit, a notification or a bill).
+  late final bool _showQuick = !_editing && widget.prefill?.amount == null;
+
+  /// The quick field fills the form as the user types: "bakso 25rb pakai gopay".
+  void _onQuickChanged(String text) {
+    final e = parseQuickInput(text, accounts: widget.accounts, categories: widget.categories);
+    if (e == null) return;
+    setState(() {
+      _amount.text = NumberFormat.decimalPattern('id_ID').format(e.amount / 100);
+      _type = e.type;
+      _note.text = e.note;
+      _date = e.date;
+      if (e.accountId case final id?) _accountId = id;
+      _categoryId = e.categoryId;
+      _categoryPicked = false;
+      _quickLabels = e.labels;
+    });
+  }
+
+  void _pickCategory(String? id) => setState(() {
+    _categoryId = id;
+    _categoryPicked = true;
+  });
+
+  /// A list to choose one option from: (id, name, trailing text).
+  Future<String?> _choose(String title, List<(String, String, String?)> options, String? current) {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: Text(title, style: AppText.heading),
+              ),
+              for (final (id, name, trailing) in options)
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                  title: Text(name, style: AppText.body),
+                  trailing: trailing == null ? null : Text(trailing, style: AppText.label),
+                  selected: id == current,
+                  onTap: () => Navigator.pop(context, id),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<(String, String, String?)> _accountOptions({String? except}) => [
+    for (final a in widget.accounts)
+      if (a['id'] != except) (a['id'] as String, a['name'] as String, formatAmount(a['balance'] as int)),
+  ];
+
+  Future<void> _pickDate() async {
+    final day = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (day == null || !mounted) return;
+    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_date));
+    final t = time ?? TimeOfDay.fromDateTime(_date); // no time picked: keep the one it had
+    setState(() => _date = DateTime(day.year, day.month, day.day, t.hour, t.minute));
+  }
+
+  String get _dateText {
+    final now = DateTime.now();
+    final days = DateTime(now.year, now.month, now.day).difference(DateTime(_date.year, _date.month, _date.day)).inDays;
+    final day = switch (days) {
+      0 => 'Hari ini, ${DateFormat('d MMM', 'id_ID').format(_date)}',
+      1 => 'Kemarin, ${DateFormat('d MMM', 'id_ID').format(_date)}',
+      _ => DateFormat('EEEE, d MMM yyyy', 'id_ID').format(_date),
+    };
+    return '$day · ${DateFormat('HH.mm').format(_date)}';
+  }
+
   Future<void> _save() async {
     final amount = parseAmount(_amount.text);
     if (amount == null) return showMessage(context, 'Nominal tidak valid. Contoh: 25.000 atau 25rb');
@@ -173,6 +268,7 @@ class _RecordFormState extends State<RecordForm> {
     final currency = widget.accounts.firstWhere((a) => a['id'] == _accountId)['currency'] as String;
     final p = widget.prefill;
     final note = _note.text.trim();
+    if (_quickLabels.isNotEmpty) _labelIds = {..._labelIds, ...await resolveLabelIds(_quickLabels)};
     final transfer = _type == 'transfer';
     final categoryId = transfer ? null : _categoryId;
     final transferAccountId = transfer ? _targetId : null;
@@ -228,107 +324,378 @@ class _RecordFormState extends State<RecordForm> {
   }
 
   @override
+  void dispose() {
+    _quick.dispose();
+    _amount.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final categories = widget.categories.where((c) => c['type'] == _type).toList();
-    DropdownMenuItem<String> accountItem(Map<String, dynamic> a) =>
-        DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String));
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.viewInsetsOf(context).bottom + 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    final c = AppColors.of(context);
+    final transfer = _type == 'transfer';
+    final categories = widget.categories.where((x) => x['type'] == _type).toList();
+    String? nameOf(List<Map<String, dynamic>> rows, String? id) =>
+        rows.where((x) => x['id'] == id).firstOrNull?['name'] as String?;
+    final account = widget.accounts.firstWhere((a) => a['id'] == _accountId);
+    final target = widget.accounts.where((a) => a['id'] == _targetId).firstOrNull;
+    final category = nameOf(widget.categories, _categoryId);
+    // The few most used, plus the current pick when it is further down the list.
+    final chips = [
+      ...categories.take(6),
+      ...categories.skip(6).where((x) => x['id'] == _categoryId),
+    ];
+    return Scaffold(
+      appBar: AppBar(
+        leadingWidth: 66,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: AppSpace.page),
+          child: Center(
+            child: IconButton(
+              tooltip: 'Kembali',
+              onPressed: () => Navigator.pop(context),
+              style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
+              icon: Icon(Icons.chevron_left, color: c.ink),
+            ),
+          ),
+        ),
+        centerTitle: true,
+        title: Text(_editing ? 'Ubah transaksi' : 'Catat transaksi', style: AppText.title.copyWith(fontSize: 20)),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(AppSpace.page, 8, AppSpace.page, 20),
         children: [
-          SegmentedButton(
-            segments: const [
-              ButtonSegment(value: 'expense', label: Text('Keluar')),
-              ButtonSegment(value: 'income', label: Text('Masuk')),
-              ButtonSegment(value: 'transfer', label: Text('Transfer')),
-            ],
-            selected: {_type},
-            onSelectionChanged: (s) => setState(() {
-              _type = s.first;
+          if (_showQuick) ...[
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 6),
+              child: Text(
+                'Ketik cepat, kolom di bawah terisi sendiri',
+                style: AppText.caption.copyWith(color: c.inkMuted),
+              ),
+            ),
+            TextField(
+              controller: _quick,
+              autofocus: true,
+              onChanged: _onQuickChanged,
+              style: AppText.body,
+              decoration: InputDecoration(
+                hintText: 'bakso 25rb pakai gopay',
+                fillColor: c.primarySoft,
+                prefixIcon: Icon(Icons.bolt, size: 20, color: c.primary),
+                contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                border: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(26)),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(26)),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: const BorderRadius.all(Radius.circular(26)),
+                  borderSide: BorderSide(color: c.primary, width: 1.5),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+          ],
+          _TypeSwitch(
+            value: _type,
+            onChanged: (type) => setState(() {
+              _type = type;
               _categoryPicked = false;
-              _categoryId = _type == 'transfer' ? null : guessCategoryId(_note.text, _type, widget.categories);
+              _categoryId = type == 'transfer' ? null : guessCategoryId(_note.text, type, widget.categories);
             }),
           ),
-          TextField(
-            controller: _amount,
-            autofocus: !_editing,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Nominal', prefixText: 'Rp '),
+          const SizedBox(height: 18),
+          Center(child: Text('Nominal', style: AppText.label.copyWith(color: c.inkMuted))),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text('Rp', style: AppText.title.copyWith(fontSize: 22, fontWeight: FontWeight.w500, color: c.inkMuted)),
+              const SizedBox(width: 6),
+              Flexible(
+                child: IntrinsicWidth(
+                  child: TextField(
+                    controller: _amount,
+                    autofocus: !_showQuick && !_editing && _amount.text.isEmpty,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: AppText.amountXl.copyWith(color: c.ink),
+                    decoration: const InputDecoration(
+                      hintText: '0',
+                      filled: false,
+                      isCollapsed: true,
+                      contentPadding: EdgeInsets.zero, // the theme pads fields; these sit inside rows
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          DropdownButtonFormField(
-            initialValue: _accountId,
-            decoration: InputDecoration(labelText: _type == 'transfer' ? 'Dari akun' : 'Akun'),
-            items: widget.accounts.map(accountItem).toList(),
-            onChanged: (v) => setState(() => _accountId = v!),
-          ),
-          if (_type == 'transfer')
-            DropdownButtonFormField(
-              initialValue: _targetId,
-              decoration: const InputDecoration(labelText: 'Ke akun'),
-              items: widget.accounts.where((a) => a['id'] != _accountId).map(accountItem).toList(),
-              onChanged: (v) => setState(() => _targetId = v),
-            )
-          else
-            DropdownButtonFormField(
-              key: ValueKey('$_type/$_categoryId'), // rebuild when the type or the guessed category changes
-              initialValue: _categoryId,
-              decoration: const InputDecoration(labelText: 'Kategori'),
-              items: [
-                for (final c in categories)
-                  DropdownMenuItem(value: c['id'] as String, child: Text(c['name'] as String)),
+          const SizedBox(height: 18),
+          Material(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                _Row(
+                  icon: Icons.edit_outlined,
+                  label: 'Catatan',
+                  child: TextField(
+                    controller: _note,
+                    onChanged: _onNoteChanged,
+                    style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                    decoration: const InputDecoration(
+                      hintText: 'contoh: bakso, bensin, token PLN',
+                      filled: false,
+                      isCollapsed: true,
+                      contentPadding: EdgeInsets.zero, // the theme pads fields; these sit inside rows
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
+                if (!transfer) ...[
+                  const Divider(indent: 16, endIndent: 16),
+                  _Row(
+                    icon: categoryIcon(category, _type),
+                    strong: true,
+                    label: 'Kategori',
+                    value: category ?? 'Pilih kategori',
+                    badge: category != null && !_categoryPicked ? 'ditebak dari catatan' : null,
+                    onTap: () async {
+                      final id = await _choose('Kategori', [
+                        for (final x in categories) (x['id'] as String, x['name'] as String, null),
+                      ], _categoryId);
+                      if (id != null) _pickCategory(id);
+                    },
+                  ),
+                ],
+                const Divider(indent: 16, endIndent: 16),
+                _Row(
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: transfer ? 'Dari akun' : 'Akun',
+                  value: account['name'] as String,
+                  trailing: formatAmount(account['balance'] as int),
+                  onTap: () async {
+                    final id = await _choose(transfer ? 'Dari akun' : 'Akun', _accountOptions(), _accountId);
+                    if (id != null) {
+                      setState(() {
+                        _accountId = id;
+                        if (_targetId == id) _targetId = null;
+                      });
+                    }
+                  },
+                ),
+                if (transfer) ...[
+                  const Divider(indent: 16, endIndent: 16),
+                  _Row(
+                    icon: Icons.swap_horiz,
+                    strong: true,
+                    label: 'Ke akun',
+                    value: target?['name'] as String? ?? 'Pilih akun tujuan',
+                    trailing: target == null ? null : formatAmount(target['balance'] as int),
+                    onTap: () async {
+                      final id = await _choose('Ke akun', _accountOptions(except: _accountId), _targetId);
+                      if (id != null) setState(() => _targetId = id);
+                    },
+                  ),
+                ],
+                const Divider(indent: 16, endIndent: 16),
+                _Row(icon: Icons.calendar_today_outlined, label: 'Tanggal', value: _dateText, onTap: _pickDate),
               ],
-              onChanged: (v) => setState(() {
-                _categoryId = v;
-                _categoryPicked = true;
-              }),
             ),
-          TextField(
-            controller: _note,
-            decoration: const InputDecoration(
-              labelText: 'Catatan (opsional)',
-              hintText: 'contoh: bakso, bensin, token PLN',
-            ),
-            onChanged: _onNoteChanged,
           ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.event),
-            title: Text(DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_date)),
-            onTap: () async {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: _date,
-                firstDate: DateTime(2000),
-                lastDate: DateTime.now().add(const Duration(days: 365)),
-              );
-              // Keep the time of day: a new record has "now", an edited one keeps its original time.
-              if (picked != null) {
-                setState(() => _date = DateTime(picked.year, picked.month, picked.day, _date.hour, _date.minute));
-              }
-            },
+          if (!transfer && chips.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 10),
+              child: Text('Kategori lain', style: AppText.label.copyWith(color: c.inkMuted)),
+            ),
+            Wrap(
+              spacing: AppSpace.tight,
+              runSpacing: AppSpace.tight,
+              children: [
+                for (final x in chips)
+                  ChoiceChip(
+                    label: Text(x['name'] as String),
+                    selected: x['id'] == _categoryId,
+                    showCheckmark: false,
+                    labelStyle: AppText.label.copyWith(
+                      fontSize: 14,
+                      color: x['id'] == _categoryId ? c.onPrimary : c.ink,
+                    ),
+                    onSelected: (_) => _pickCategory(x['id'] as String),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 10),
+            child: Text('Label', style: AppText.label.copyWith(color: c.inkMuted)),
           ),
           LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
-          const SizedBox(height: 12),
-          if (_editing)
-            Row(
-              children: [
-                TextButton.icon(
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(AppSpace.page, 12, AppSpace.page, 12 + MediaQuery.viewInsetsOf(context).bottom),
+          child: Row(
+            children: [
+              if (_editing) ...[
+                OutlinedButton.icon(
                   onPressed: _delete,
                   icon: const Icon(Icons.delete_outline),
                   label: const Text('Hapus'),
-                  style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: c.alert,
+                    minimumSize: const Size(64, 56),
+                    side: BorderSide(color: c.outline),
+                  ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton(onPressed: _save, child: const Text('Simpan perubahan')),
-                ),
+                const SizedBox(width: AppSpace.gap),
               ],
-            )
-          else
-            FilledButton(onPressed: _save, child: const Text('Simpan')),
+              Expanded(
+                child: FilledButton(
+                  onPressed: _save,
+                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+                  child: Text(_editing ? 'Simpan perubahan' : 'Simpan'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Keluar / Masuk / Transfer as one pill track.
+class _TypeSwitch extends StatelessWidget {
+  const _TypeSwitch({required this.value, required this.onChanged});
+
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(color: c.surfaceMuted, borderRadius: BorderRadius.circular(26)),
+      child: Row(
+        children: [
+          for (final (type, label) in const [('expense', 'Keluar'), ('income', 'Masuk'), ('transfer', 'Transfer')])
+            Expanded(
+              child: Semantics(
+                selected: value == type,
+                child: TextButton(
+                  onPressed: () => onChanged(type),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                    shape: const StadiumBorder(),
+                    backgroundColor: value == type ? c.primary : Colors.transparent,
+                    foregroundColor: value == type ? c.onPrimary : c.ink,
+                    textStyle: AppText.button.copyWith(fontSize: 15, fontWeight: FontWeight.w500),
+                  ),
+                  child: Text(label),
+                ),
+              ),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+/// One line of the form card: an icon, a small label, and either a value to tap or a [child] field.
+class _Row extends StatelessWidget {
+  const _Row({
+    required this.icon,
+    required this.label,
+    this.value,
+    this.child,
+    this.trailing,
+    this.badge,
+    this.onTap,
+    this.strong = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? value;
+  final Widget? child;
+  final String? trailing;
+  final String? badge;
+  final VoidCallback? onTap;
+  final bool strong; // the dark icon circle, for the row that decides the most (category, target)
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return InkWell(
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 64),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: strong ? c.hero : c.surfaceMuted, shape: BoxShape.circle),
+                child: Icon(icon, size: 18, color: strong ? c.onHero : c.ink),
+              ),
+              const SizedBox(width: AppSpace.gap),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // The badge sits beside the small label, so a long value keeps the full width.
+                    Row(
+                      children: [
+                        Text(label, style: AppText.caption.copyWith(color: c.inkMuted)),
+                        if (badge != null)
+                          Container(
+                            margin: const EdgeInsets.only(left: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                            decoration: BoxDecoration(color: c.primarySoft, borderRadius: BorderRadius.circular(10)),
+                            child: Text(badge!, style: AppText.caption.copyWith(fontSize: 11, color: c.primary)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    child ??
+                        Text(
+                          value ?? '',
+                          style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                Text(trailing!, style: AppText.label.copyWith(color: c.inkMuted)),
+              ],
+              if (onTap != null) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_right, size: 18, color: c.inkMuted),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
