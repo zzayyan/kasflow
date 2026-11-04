@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
-import 'categorize.dart';
-import 'db.dart';
-import 'insights.dart' show VizColors;
-import 'main.dart' show Prefill, showMessage, showRecordForm;
-import 'money.dart';
-import 'recurrence.dart';
+import '../categorize.dart';
+import '../db.dart';
+import '../money.dart';
+import '../recurrence.dart';
+import '../ui.dart';
+import 'record_form.dart';
 
 // A7: planned payments (tagihan rutin) with reminders.
 
@@ -182,7 +182,7 @@ Future<void> showBillForm(BuildContext context) async {
     'SELECT id, name, type, keywords FROM categories WHERE archived = 0 ORDER BY name',
   );
   if (!context.mounted) return;
-  if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu di tab Akun.');
+  if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun saya.');
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,

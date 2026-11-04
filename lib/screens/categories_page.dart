@@ -2,9 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import 'categorize.dart';
-import 'db.dart';
-import 'insights.dart' show needLevelLabels;
+import '../categorize.dart';
+import '../db.dart';
+import '../ui.dart' show needLevelLabels;
 
 // A3: manage categories (name, wajib/butuh/ingin level, keywords, archive).
 // ponytail: flat list only; parent_id is in the schema for sub-categories when they are needed.

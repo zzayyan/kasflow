@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import 'db.dart';
+import '../db.dart';
 
 // A4: labels (free tags on records), e.g. "liburan bali" or "kantor".
 

@@ -1,4 +1,4 @@
-import 'package:cashflow_app/labels_page.dart';
+import 'package:cashflow_app/screens/labels_page.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
