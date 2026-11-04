@@ -10,9 +10,10 @@ import 'onboarding.dart';
 // Masuk / Daftar, after the "Login" artboard of the Cashflow UI/UX canvas.
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, this.signUp = false});
+  const LoginPage({super.key, this.signUp = false, this.starterAccounts = const []});
 
   final bool signUp; // open on Daftar instead of Masuk
+  final List<StarterAccount> starterAccounts; // picked in the intro, created on sign-up
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -62,9 +63,8 @@ class _LoginPageState extends State<LoginPage> {
           }
           return;
         }
-        // The app's root swaps to Beranda on the new session; the new user sets up on top of it.
-        nav.popUntil((route) => route.isFirst);
-        await nav.push(MaterialPageRoute<void>(builder: (_) => const OnboardingFlow()));
+        await createStarterAccounts(widget.starterAccounts);
+        nav.popUntil((route) => route.isFirst); // the app's root swaps to Beranda on the new session
       } else {
         await supabase.auth.signInWithPassword(email: email, password: password);
         nav.popUntil((route) => route.isFirst);
