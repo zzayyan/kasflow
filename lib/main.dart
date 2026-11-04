@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'db.dart';
 import 'screens/home_page.dart';
-import 'screens/login_page.dart';
+import 'screens/onboarding.dart';
 import 'theme.dart';
 
 Future<void> main() async {
@@ -33,7 +33,7 @@ class App extends StatelessWidget {
       darkTheme: buildAppTheme(Brightness.dark),
       home: StreamBuilder<AuthState>(
         stream: supabase.auth.onAuthStateChange,
-        builder: (context, _) => supabase.auth.currentSession == null ? const LoginPage() : const HomePage(),
+        builder: (context, _) => supabase.auth.currentSession == null ? const WelcomePage() : const HomePage(),
       ),
     );
   }

@@ -1,35 +1,73 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../db.dart';
+import '../theme.dart';
 import '../ui.dart';
+import 'onboarding.dart';
+
+// Masuk / Daftar, after the "Login" artboard of the Cashflow UI/UX canvas.
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, this.signUp = false});
+
+  final bool signUp; // open on Daftar instead of Masuk
 
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
+  late bool _signUp = widget.signUp;
+  final _name = TextEditingController();
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _busy = false;
+  bool _showPassword = false;
 
-  Future<void> _submit({required bool signUp}) async {
+  @override
+  void dispose() {
+    _name.dispose();
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
     final email = _email.text.trim();
+    final password = _password.text;
     // Without this, an empty email reaches Supabase as an anonymous sign-up ("Anonymous sign-ins are disabled").
     if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
       return showMessage(context, 'Isi email yang valid, contoh nama@gmail.com');
     }
-    if (_password.text.length < 6) return showMessage(context, 'Password minimal 6 karakter.');
+    // New passwords need 8; signing in accepts whatever an older account was made with.
+    if (_signUp && password.length < 8) return showMessage(context, 'Password minimal 8 karakter.');
+    if (!_signUp && password.isEmpty) return showMessage(context, 'Isi password.');
+    final nav = Navigator.of(context);
     setState(() => _busy = true);
     try {
-      if (signUp) {
-        final res = await supabase.auth.signUp(email: email, password: _password.text);
-        if (res.session == null && mounted) showMessage(context, 'Cek email Anda untuk konfirmasi, lalu masuk.');
+      if (_signUp) {
+        final name = _name.text.trim();
+        final res = await supabase.auth.signUp(
+          email: email,
+          password: password,
+          data: name.isEmpty ? null : {'name': name},
+        );
+        if (res.session == null) {
+          // Email confirmation is on: the account exists once the link is opened.
+          if (mounted) {
+            setState(() => _signUp = false);
+            showMessage(context, 'Cek email untuk konfirmasi, lalu masuk di sini.');
+          }
+          return;
+        }
+        // The app's root swaps to Beranda on the new session; the new user sets up on top of it.
+        nav.popUntil((route) => route.isFirst);
+        await nav.push(MaterialPageRoute<void>(builder: (_) => const OnboardingFlow()));
       } else {
-        await supabase.auth.signInWithPassword(email: email, password: _password.text);
+        await supabase.auth.signInWithPassword(email: email, password: password);
+        nav.popUntil((route) => route.isFirst);
       }
     } on AuthException catch (e) {
       if (mounted) showMessage(context, e.message);
@@ -40,29 +78,154 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
+    final c = AppColors.of(context);
+    Widget field(String label, TextEditingController controller, Widget input) => Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 6),
+            child: Text(label, style: AppText.label.copyWith(color: c.inkMuted)),
+          ),
+          input,
+        ],
+      ),
+    );
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light, // light icons on the dark green top
+      child: Scaffold(
+        body: Column(
           children: [
-            const SizedBox(height: 48),
-            Text('Cashflow', style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _email,
-              decoration: const InputDecoration(labelText: 'Email'),
-              keyboardType: TextInputType.emailAddress,
-              autofillHints: const [AutofillHints.email],
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: c.hero,
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(36)),
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (Navigator.canPop(context))
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: IconButton(
+                            tooltip: 'Kembali',
+                            onPressed: () => Navigator.pop(context),
+                            style: IconButton.styleFrom(backgroundColor: c.heroChip, fixedSize: const Size.square(44)),
+                            icon: Icon(Icons.chevron_left, color: c.onHero),
+                          ),
+                        ),
+                      Container(
+                        width: 52,
+                        height: 52,
+                        // White tile, green mark: the same in light and dark, like the hero behind it.
+                        decoration: BoxDecoration(color: c.onHero, borderRadius: BorderRadius.circular(16)),
+                        child: Icon(Icons.show_chart, size: 28, color: c.hero),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        _signUp ? 'Buat akun' : 'Selamat datang lagi',
+                        style: AppText.title.copyWith(fontSize: 30, letterSpacing: -0.5, color: c.onHero),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _signUp ? 'Satu akun untuk semua HP-mu.' : 'Masuk untuk lanjut mencatat.',
+                        style: AppText.body.copyWith(color: c.onHeroMuted, height: 1.45),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-            TextField(
-              controller: _password,
-              decoration: const InputDecoration(labelText: 'Password'),
-              obscureText: true,
-              autofillHints: const [AutofillHints.password],
+            Expanded(
+              child: SafeArea(
+                top: false,
+                child: ListView(
+                  padding: const EdgeInsets.all(24),
+                  children: [
+                    PillSwitch(
+                      options: const [(false, 'Masuk'), (true, 'Daftar')],
+                      value: _signUp,
+                      onChanged: (v) => setState(() => _signUp = v),
+                    ),
+                    const SizedBox(height: 16),
+                    AutofillGroup(
+                      child: Column(
+                        children: [
+                          if (_signUp)
+                            field(
+                              'Nama panggilan',
+                              _name,
+                              TextField(
+                                controller: _name,
+                                textCapitalization: TextCapitalization.words,
+                                autofillHints: const [AutofillHints.nickname],
+                                decoration: const InputDecoration(hintText: 'contoh: Zayyan'),
+                              ),
+                            ),
+                          field(
+                            'Email',
+                            _email,
+                            TextField(
+                              controller: _email,
+                              keyboardType: TextInputType.emailAddress,
+                              autofillHints: const [AutofillHints.email],
+                              decoration: const InputDecoration(hintText: 'nama@email.com'),
+                            ),
+                          ),
+                          field(
+                            'Password',
+                            _password,
+                            TextField(
+                              controller: _password,
+                              obscureText: !_showPassword,
+                              autofillHints: [_signUp ? AutofillHints.newPassword : AutofillHints.password],
+                              onSubmitted: (_) => _submit(),
+                              decoration: InputDecoration(
+                                hintText: _signUp ? 'minimal 8 karakter' : null,
+                                suffixIcon: IconButton(
+                                  tooltip: _showPassword ? 'Sembunyikan password' : 'Tampilkan password',
+                                  onPressed: () => setState(() => _showPassword = !_showPassword),
+                                  icon: Icon(
+                                    _showPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                    color: c.inkMuted,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      onPressed: _busy ? null : _submit,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(58),
+                        textStyle: AppText.button.copyWith(fontSize: 17),
+                      ),
+                      child: _busy
+                          ? SizedBox.square(
+                              dimension: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2.4, color: c.onPrimary),
+                            )
+                          : Text(_signUp ? 'Daftar' : 'Masuk'),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Data disimpan di HP dan disinkronkan ke akunmu, jadi tetap aman kalau ganti HP.',
+                      textAlign: TextAlign.center,
+                      style: AppText.caption.copyWith(color: c.inkMuted, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 24),
-            FilledButton(onPressed: _busy ? null : () => _submit(signUp: false), child: const Text('Masuk')),
-            TextButton(onPressed: _busy ? null : () => _submit(signUp: true), child: const Text('Daftar akun baru')),
           ],
         ),
       ),
