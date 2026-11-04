@@ -56,5 +56,15 @@ String dueLabel(int days) => switch (days) {
   _ => '$days hari lagi',
 };
 
-/// Reminders fire at 09:00 local time, [daysBefore] days before the due date.
-DateTime reminderAt(DateTime due, int daysBefore) => DateTime(due.year, due.month, due.day - daysBefore, 9);
+/// Reminders fire at [time] local time (09:00 unless set in Pengaturan), [daysBefore] days before
+/// the due date.
+DateTime reminderAt(DateTime due, int daysBefore, {(int, int) time = (9, 0)}) =>
+    DateTime(due.year, due.month, due.day - daysBefore, time.$1, time.$2);
+
+/// "HH:mm" as saved in prefs; the default for anything else.
+(int, int) parseReminderTime(String? s) {
+  final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(s ?? '');
+  if (m == null) return (9, 0);
+  final (h, min) = (int.parse(m[1]!), int.parse(m[2]!));
+  return h < 24 && min < 60 ? (h, min) : (9, 0);
+}

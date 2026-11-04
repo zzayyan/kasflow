@@ -14,6 +14,7 @@ import 'accounts_tab.dart';
 import 'bills_tab.dart';
 import 'record_form.dart';
 import 'records_tab.dart';
+import 'settings_page.dart';
 
 // Beranda, after the "E · Beranda" and "Kosong · Beranda" artboards of the Cashflow UI/UX canvas.
 // Until the first record exists it shows a getting-started checklist instead of the latest records.
@@ -23,10 +24,7 @@ final _digits = NumberFormat.decimalPattern('id_ID');
 final _compact = NumberFormat.compact(locale: 'id_ID');
 
 class DashboardTab extends StatefulWidget {
-  const DashboardTab({super.key, required this.menu, required this.onOpenTab});
-
-  /// Wraps the avatar in the app menu (categories, labels, logout).
-  final Widget Function(Widget child) menu;
+  const DashboardTab({super.key, required this.onOpenTab});
 
   /// Switches the bottom navigation: 1 Transaksi, 3 Laporan.
   final ValueChanged<int> onOpenTab;
@@ -62,7 +60,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
       AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?2)''';
 
   late DateTime _month;
-  bool _hidden = false; // ponytail: per session; persist it if people want it to stick
+  bool _hidden = false; // starts from Pengaturan's 'Sembunyikan saldo saat dibuka'
   bool _notifications = false;
 
   void _watchMonth() {
@@ -94,6 +92,11 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
     _watchMonth();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_importInbox());
+    unawaited(getPref('hide_balance').then((v) => v == '1' ? _set(() => _hidden = true) : null));
+  }
+
+  void _set(VoidCallback change) {
+    if (mounted) setState(change);
   }
 
   @override
@@ -140,7 +143,10 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                 children: [
                   _Header(
                     isNew: isNew,
-                    menu: widget.menu,
+                    onAvatar: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+                    ),
                     inboxCount: inboxCount,
                     onInbox: () => widget.onOpenTab(1),
                   ),
@@ -184,10 +190,10 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
 // ---------------------------------------------------------------- header
 
 class _Header extends StatelessWidget {
-  const _Header({required this.isNew, required this.menu, required this.inboxCount, required this.onInbox});
+  const _Header({required this.isNew, required this.onAvatar, required this.inboxCount, required this.onInbox});
 
   final bool isNew;
-  final Widget Function(Widget child) menu;
+  final VoidCallback onAvatar; // opens Pengaturan
   final int inboxCount;
   final VoidCallback onInbox;
 
@@ -198,18 +204,10 @@ class _Header extends StatelessWidget {
     _ => 'Selamat malam',
   };
 
-  /// The name from sign-up metadata, else the part of the email before "@".
-  static String _name() {
-    final user = supabase.auth.currentUser;
-    final meta = user?.userMetadata?['name'] ?? user?.userMetadata?['full_name'];
-    final name = meta is String && meta.trim().isNotEmpty ? meta.trim() : (user?.email ?? '').split('@').first;
-    return name.isEmpty ? 'Kamu' : name[0].toUpperCase() + name.substring(1);
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final name = _name();
+    final name = userDisplayName();
     final now = DateTime.now();
     return Row(
       children: [
@@ -224,10 +222,14 @@ class _Header extends StatelessWidget {
                 : (s!.uploading || s.downloading)
                 ? 'menyinkronkan'
                 : 'semua data tersinkron';
-            return menu(
-              Semantics(
-                label: 'Menu, $status',
+            return InkWell(
+              onTap: onAvatar,
+              customBorder: const CircleBorder(),
+              child: Semantics(
+                button: true,
+                label: 'Pengaturan, $status',
                 excludeSemantics: true,
+                onTap: onAvatar, // excludeSemantics drops the InkWell's own action
                 child: SizedBox.square(
                   dimension: 46,
                   child: Stack(

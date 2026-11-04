@@ -136,4 +136,6 @@ const schema = Schema([
     Column.text('error'),
     Column.text('created_at'),
   ]),
+  // Preferences of this phone (hide balance, reminder time), keyed by id. Never synced.
+  Table.localOnly('prefs', [Column.text('value')]),
 ]);

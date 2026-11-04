@@ -24,15 +24,20 @@ DateTime _date(Object? yyyyMmDd) => DateTime.parse(yyyyMmDd as String);
 /// next due date. Runs while the app is open; data synced from another device while the app is
 /// closed is picked up on the next start.
 StreamSubscription<void> keepRemindersScheduled() => db
-    .watch('SELECT id, name, type, amount, next_due_date, remind_days_before FROM planned_payments')
+    .watch(
+      'SELECT id, name, type, amount, next_due_date, remind_days_before FROM planned_payments',
+      triggerOnTables: const ['planned_payments', 'prefs'], // a new reminder time reschedules too
+    )
     .listen((rows) => scheduleReminders(rows.toList()));
 
-Future<void> scheduleReminders(List<Map<String, dynamic>> bills) {
+Future<void> scheduleReminders(List<Map<String, dynamic>> bills) async {
+  final time = parseReminderTime(await getPref('reminder_time'));
   final now = DateTime.now();
   final date = DateFormat('d MMM', 'id_ID');
   final reminders = [
     for (final (i, b) in bills.indexed)
-      if (reminderAt(_date(b['next_due_date']), b['remind_days_before'] as int) case final at when at.isAfter(now))
+      if (reminderAt(_date(b['next_due_date']), b['remind_days_before'] as int, time: time) case final at
+          when at.isAfter(now))
         {
           'id': i + 1,
           'at': at.millisecondsSinceEpoch,
@@ -42,7 +47,7 @@ Future<void> scheduleReminders(List<Map<String, dynamic>> bills) {
               '${dueLabel(b['remind_days_before'] as int).toLowerCase()} (${date.format(_date(b['next_due_date']))})',
         },
   ];
-  return _channel.invokeMethod('scheduleReminders', reminders);
+  await _channel.invokeMethod('scheduleReminders', reminders);
 }
 
 /// Bills that are due within their reminder window or late, for the navigation badge.
@@ -118,20 +123,36 @@ Future<void> showBillForm(BuildContext context, {String? name, String type = 'ex
   );
   if (!context.mounted) return;
   if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
+  final (h, m) = parseReminderTime(await getPref('reminder_time'));
+  if (!context.mounted) return;
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    builder: (_) => BillForm(accounts: accounts, categories: categories, name: name, type: type),
+    builder: (_) => BillForm(
+      accounts: accounts,
+      categories: categories,
+      name: name,
+      type: type,
+      reminderTime: '${h.toString().padLeft(2, '0')}.${m.toString().padLeft(2, '0')}',
+    ),
   );
 }
 
 class BillForm extends StatefulWidget {
-  const BillForm({super.key, required this.accounts, required this.categories, this.name, this.type = 'expense'});
+  const BillForm({
+    super.key,
+    required this.accounts,
+    required this.categories,
+    this.name,
+    this.type = 'expense',
+    this.reminderTime = '09.00',
+  });
 
   final List<Map<String, dynamic>> accounts;
   final List<Map<String, dynamic>> categories;
   final String? name;
   final String type;
+  final String reminderTime; // shown in the reminder field; set in Pengaturan
 
   @override
   State<BillForm> createState() => _BillFormState();
@@ -264,7 +285,7 @@ class _BillFormState extends State<BillForm> {
             ),
             DropdownButtonFormField(
               initialValue: _remind,
-              decoration: const InputDecoration(labelText: 'Ingatkan (pukul 09.00)'),
+              decoration: InputDecoration(labelText: 'Ingatkan (pukul ${widget.reminderTime})'),
               items: [for (final e in reminderLabels.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
               onChanged: (v) => setState(() => _remind = v!),
             ),

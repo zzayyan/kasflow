@@ -89,25 +89,50 @@ Future<void> openDatabase() async {
 
   await Supabase.initialize(url: supabaseUrl, publishableKey: supabasePublishableKey);
 
-  SupabaseConnector? connector;
-  void connect() {
-    connector = SupabaseConnector();
-    db.connect(connector: connector!);
-  }
-
-  if (supabase.auth.currentSession != null) connect();
+  if (supabase.auth.currentSession != null) _connect();
   supabase.auth.onAuthStateChange.listen((state) async {
     if (state.event == AuthChangeEvent.signedIn) {
-      connect();
+      _connect();
     } else if (state.event == AuthChangeEvent.signedOut) {
       // Can also fire when a refresh token expires: disconnect only, keep unsynced data.
-      connector = null;
+      _connector = null;
       await db.disconnect();
     } else if (state.event == AuthChangeEvent.tokenRefreshed) {
-      connector?.prefetchCredentials();
+      _connector?.prefetchCredentials();
     }
   });
 }
+
+SupabaseConnector? _connector;
+
+void _connect() {
+  _connector = SupabaseConnector();
+  db.connect(connector: _connector!);
+}
+
+/// "Coba sinkron sekarang": start the sync connection again instead of waiting for its retry.
+Future<void> reconnect() async {
+  if (supabase.auth.currentSession == null) return;
+  await db.disconnect();
+  _connect();
+}
+
+/// The name from sign-up metadata, else the part of the email before "@".
+String userDisplayName() {
+  final user = supabase.auth.currentUser;
+  final meta = user?.userMetadata?['name'] ?? user?.userMetadata?['full_name'];
+  final name = meta is String && meta.trim().isNotEmpty ? meta.trim() : (user?.email ?? '').split('@').first;
+  return name.isEmpty ? 'Kamu' : name[0].toUpperCase() + name.substring(1);
+}
+
+/// This phone's preferences (the local-only `prefs` table), e.g. 'hide_balance' -> '1'.
+Future<String?> getPref(String key) async =>
+    (await db.getOptional('SELECT value FROM prefs WHERE id = ?', [key]))?['value'] as String?;
+
+Future<void> setPref(String key, String value) => db.writeTransaction((tx) async {
+  await tx.execute('DELETE FROM prefs WHERE id = ?', [key]);
+  await tx.execute('INSERT INTO prefs (id, value) VALUES (?, ?)', [key, value]);
+});
 
 /// Explicit logout. Refuses while changes are still waiting to upload, because
 /// clearing the local database would destroy them. Returns false when refused.

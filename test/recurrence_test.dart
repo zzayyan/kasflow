@@ -35,5 +35,9 @@ void main() {
   test('reminder at 09:00, crossing month starts', () {
     expect(reminderAt(DateTime(2026, 12, 2), 3), DateTime(2026, 11, 29, 9));
     expect(reminderAt(DateTime(2026, 12, 2), 0), DateTime(2026, 12, 2, 9));
+    expect(reminderAt(DateTime(2026, 12, 2), 1, time: (20, 30)), DateTime(2026, 12, 1, 20, 30));
+    expect(parseReminderTime('07:05'), (7, 5));
+    expect(parseReminderTime(null), (9, 0));
+    expect(parseReminderTime('25:00'), (9, 0));
   });
 }

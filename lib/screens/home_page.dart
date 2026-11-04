@@ -2,13 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../db.dart';
 import '../theme.dart';
-import '../ui.dart';
 import 'bills_tab.dart';
-import 'categories_page.dart';
 import 'dashboard_tab.dart';
-import 'labels_page.dart';
 import 'plans_tab.dart';
 import 'record_form.dart';
 import 'records_tab.dart';
@@ -38,50 +34,12 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  Future<void> _logout() async {
-    if (!await logout()) {
-      if (mounted) {
-        showMessage(context, 'Masih ada data yang belum tersinkron. Sambungkan internet dulu, lalu coba lagi.');
-      }
-      return;
-    }
-    await scheduleReminders(const []); // the next user on this phone must not get this user's bills
-  }
-
-  // The app menu. Beranda opens it from the avatar ([child]); other tabs from the app bar.
-  Widget _menu(BuildContext context, {Widget? child}) => PopupMenuButton<String>(
-    tooltip: 'Menu',
-    onSelected: (choice) => switch (choice) {
-      'categories' => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const CategoriesPage())),
-      'labels' => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const LabelsPage())),
-      _ => _logout(),
-    },
-    itemBuilder: (context) => const [
-      PopupMenuItem(
-        value: 'categories',
-        child: ListTile(leading: Icon(Icons.category_outlined), title: Text('Kelola kategori')),
-      ),
-      PopupMenuItem(
-        value: 'labels',
-        child: ListTile(leading: Icon(Icons.sell_outlined), title: Text('Kelola label')),
-      ),
-      PopupMenuItem(
-        value: 'logout',
-        child: ListTile(leading: Icon(Icons.logout), title: Text('Keluar')),
-      ),
-    ],
-    child: child,
-  );
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Every tab draws its own header, as in the design; the menu and sync state sit on Beranda's avatar.
+      // Every tab draws its own header, as in the design; Beranda's avatar opens Pengaturan.
       body: switch (_tab) {
-        0 => DashboardTab(
-          menu: (child) => _menu(context, child: child),
-          onOpenTab: (i) => setState(() => _tab = i),
-        ),
+        0 => DashboardTab(onOpenTab: (i) => setState(() => _tab = i)),
         1 => const RecordsTab(),
         2 => const PlansTab(),
         _ => const ReportTab(),
