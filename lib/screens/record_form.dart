@@ -400,7 +400,8 @@ class _RecordFormState extends State<RecordForm> {
             ),
             const SizedBox(height: 18),
           ],
-          _TypeSwitch(
+          PillSwitch(
+            options: const [('expense', 'Keluar'), ('income', 'Masuk'), ('transfer', 'Transfer')],
             value: _type,
             onChanged: (type) => setState(() {
               _type = type;
@@ -574,44 +575,6 @@ class _RecordFormState extends State<RecordForm> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Keluar / Masuk / Transfer as one pill track.
-class _TypeSwitch extends StatelessWidget {
-  const _TypeSwitch({required this.value, required this.onChanged});
-
-  final String value;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = AppColors.of(context);
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(color: c.surfaceMuted, borderRadius: BorderRadius.circular(26)),
-      child: Row(
-        children: [
-          for (final (type, label) in const [('expense', 'Keluar'), ('income', 'Masuk'), ('transfer', 'Transfer')])
-            Expanded(
-              child: Semantics(
-                selected: value == type,
-                child: TextButton(
-                  onPressed: () => onChanged(type),
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size.fromHeight(44),
-                    shape: const StadiumBorder(),
-                    backgroundColor: value == type ? c.primary : Colors.transparent,
-                    foregroundColor: value == type ? c.onPrimary : c.ink,
-                    textStyle: AppText.button.copyWith(fontSize: 15, fontWeight: FontWeight.w500),
-                  ),
-                  child: Text(label),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }

@@ -30,6 +30,8 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.alertSoft,
     required this.needLevels,
     required this.chart,
+    required this.chartOther,
+    required this.chartMuted,
   });
 
   final Color bg; // screen background
@@ -55,8 +57,12 @@ class AppColors extends ThemeExtension<AppColors> {
   /// must / need / want / no level. Tan is reserved for "want" (Ingin).
   final Map<String?, Color> needLevels;
 
-  /// Categorical chart colors, largest slice first. Always label values next to them.
+  /// Categorical chart colors, largest slice first, then [chartOther] for the folded rest.
+  /// Validated with the dataviz validator against [surface] (light and dark): the design's green
+  /// steps could not be told apart. Light slots 3-5 sit below 3:1, so values are always labelled.
   final List<Color> chart;
+  final Color chartOther; // "Lainnya"
+  final Color chartMuted; // bars that are not the one in focus (trend chart)
 
   static const light = AppColors(
     bg: Color(0xFFF1F0EB),
@@ -81,18 +87,13 @@ class AppColors extends ThemeExtension<AppColors> {
     alertSoft: Color(0xFFF6E1D8),
     needLevels: {
       'must': Color(0xFF1E4A35),
-      'need': Color(0xFF7FAF8C),
+      'need': Color(0xFF4F8A66), // the design's #7FAF8C was too close to want's tan (dataviz validator)
       'want': Color(0xFFD9A273),
       null: Color(0xFFD6D8D1),
     },
-    chart: [
-      Color(0xFF1E4A35),
-      Color(0xFF3F7A58),
-      Color(0xFF7FAF8C),
-      Color(0xFFB3CFB8),
-      Color(0xFFB5B9B0),
-      Color(0xFFD6D8D1),
-    ],
+    chart: [Color(0xFF2A78D6), Color(0xFFEB6834), Color(0xFF1BAF7A), Color(0xFFEDA100), Color(0xFFE87BA4)],
+    chartOther: Color(0xFFC9CCC4),
+    chartMuted: Color(0xFFC3D6C6),
   );
 
   static const dark = AppColors(
@@ -122,14 +123,9 @@ class AppColors extends ThemeExtension<AppColors> {
       'want': Color(0xFFD9A273),
       null: Color(0xFF4A524C),
     },
-    chart: [
-      Color(0xFFCFE6D3),
-      Color(0xFF8CC5A0),
-      Color(0xFF5C9A73),
-      Color(0xFF3A6B4F),
-      Color(0xFF6B746D),
-      Color(0xFF3A423C),
-    ],
+    chart: [Color(0xFF3987E5), Color(0xFFD95926), Color(0xFF199E70), Color(0xFFC98500), Color(0xFFD55181)],
+    chartOther: Color(0xFF4A524C),
+    chartMuted: Color(0xFF2E4A3A),
   );
 
   static AppColors of(BuildContext context) => Theme.of(context).extension<AppColors>() ?? light;
@@ -158,6 +154,8 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? alertSoft,
     Map<String?, Color>? needLevels,
     List<Color>? chart,
+    Color? chartOther,
+    Color? chartMuted,
   }) => AppColors(
     bg: bg ?? this.bg,
     surface: surface ?? this.surface,
@@ -181,6 +179,8 @@ class AppColors extends ThemeExtension<AppColors> {
     alertSoft: alertSoft ?? this.alertSoft,
     needLevels: needLevels ?? this.needLevels,
     chart: chart ?? this.chart,
+    chartOther: chartOther ?? this.chartOther,
+    chartMuted: chartMuted ?? this.chartMuted,
   );
 
   @override
@@ -211,6 +211,8 @@ class AppColors extends ThemeExtension<AppColors> {
       // Category colors don't blend meaningfully; switch halfway.
       needLevels: t < 0.5 ? needLevels : other.needLevels,
       chart: t < 0.5 ? chart : other.chart,
+      chartOther: l(chartOther, other.chartOther),
+      chartMuted: l(chartMuted, other.chartMuted),
     );
   }
 }

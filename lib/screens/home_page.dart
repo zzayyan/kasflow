@@ -73,30 +73,10 @@ class _HomePageState extends State<HomePage> {
     child: child,
   );
 
-  // Sync status and the menu, in the app bar of every tab but Beranda.
-  List<Widget> _actions(BuildContext context) => [
-    StreamBuilder(
-      stream: db.statusStream,
-      initialData: db.currentStatus, // the stream only reports changes
-      builder: (context, snap) {
-        final s = snap.data;
-        final (icon, label) = s == null || !s.connected
-            ? (Icons.cloud_off, 'Offline: data aman di HP, sync saat online')
-            : (s.uploading || s.downloading)
-            ? (Icons.cloud_sync, 'Menyinkronkan')
-            : (Icons.cloud_done, 'Tersinkron');
-        return IconButton(icon: Icon(icon), tooltip: label, onPressed: () => showMessage(context, label));
-      },
-    ),
-    _menu(context),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Beranda, Transaksi and Rencana draw their own header, as in the design; the menu sits on
-      // Beranda's avatar. Laporan keeps an app bar until its screen is redone.
-      appBar: _tab < 3 ? null : AppBar(title: const Text('Laporan'), actions: _actions(context)),
+      // Every tab draws its own header, as in the design; the menu and sync state sit on Beranda's avatar.
       body: switch (_tab) {
         0 => DashboardTab(
           menu: (child) => _menu(context, child: child),
@@ -138,6 +118,7 @@ class _BottomNav extends StatelessWidget {
           button: true,
           label: badge > 0 ? '$label, $badge tagihan perlu dibayar' : label,
           excludeSemantics: true,
+          onTap: () => onSelect(i), // excludeSemantics drops the InkWell's own action
           child: InkWell(
             onTap: () => onSelect(i),
             child: Column(

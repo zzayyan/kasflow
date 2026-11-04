@@ -37,6 +37,7 @@ class MonthReport {
     required this.previousIncome,
     required this.previousExpense,
     required this.categories,
+    required this.incomeCategories,
     required this.byNeedLevel,
   });
 
@@ -45,6 +46,7 @@ class MonthReport {
   final int previousIncome;
   final int previousExpense;
   final List<CategoryTotal> categories; // this month's expenses, largest first
+  final List<CategoryTotal> incomeCategories; // this month's income, largest first
   final Map<String?, int> byNeedLevel; // 'must' / 'need' / 'want' / null (no level), expenses only
 
   int get net => income - expense;
@@ -56,31 +58,70 @@ class MonthReport {
 MonthReport buildMonthReport(List<Map<String, dynamic>> rows) {
   var income = 0, expense = 0, previousIncome = 0, previousExpense = 0;
   final categories = <CategoryTotal>[];
+  final incomeCategories = <CategoryTotal>[];
   final byNeedLevel = <String?, int>{};
   for (final r in rows) {
     final cur = (r['cur'] as int?) ?? 0;
     final prev = (r['prev'] as int?) ?? 0;
+    final total = CategoryTotal(r['category_id'] as String?, (r['name'] as String?) ?? 'Tanpa kategori', cur);
     if (r['type'] == 'income') {
       income += cur;
       previousIncome += prev;
+      if (cur > 0) incomeCategories.add(total);
       continue;
     }
     expense += cur;
     previousExpense += prev;
     if (cur == 0) continue;
-    categories.add(CategoryTotal(r['category_id'] as String?, (r['name'] as String?) ?? 'Tanpa kategori', cur));
+    categories.add(total);
     final level = r['need_level'] as String?;
     byNeedLevel[level] = (byNeedLevel[level] ?? 0) + cur;
   }
-  categories.sort((a, b) => b.amount.compareTo(a.amount));
+  int largestFirst(CategoryTotal a, CategoryTotal b) => b.amount.compareTo(a.amount);
+  categories.sort(largestFirst);
+  incomeCategories.sort(largestFirst);
   return MonthReport(
     income: income,
     expense: expense,
     previousIncome: previousIncome,
     previousExpense: previousExpense,
     categories: categories,
+    incomeCategories: incomeCategories,
     byNeedLevel: byNeedLevel,
   );
+}
+
+/// The [keep] largest of [ranked] (largest first) and one "Lainnya" for the rest, so a chart never
+/// needs more colors than it has. Nothing is folded when only one would be left over.
+List<CategoryTotal> foldSmallest(List<CategoryTotal> ranked, int keep) {
+  if (ranked.length <= keep + 1) return ranked;
+  final rest = ranked.skip(keep).fold<int>(0, (sum, c) => sum + c.amount);
+  return [...ranked.take(keep), CategoryTotal(null, 'Lainnya', rest)];
+}
+
+/// Totals of [type] for the [count] months ending with [lastMonth], oldest first. [rows] hold
+/// `type`, `amount` and `occurred_at` (UTC ISO 8601); months are local calendar months.
+List<int> monthTotals(List<Map<String, dynamic>> rows, DateTime lastMonth, int count, String type) {
+  final totals = List.filled(count, 0);
+  for (final r in rows) {
+    if (r['type'] != type) continue;
+    final t = DateTime.parse(r['occurred_at'] as String).toLocal();
+    final back = (lastMonth.year - t.year) * 12 + lastMonth.month - t.month;
+    if (back >= 0 && back < count) totals[count - 1 - back] += r['amount'] as int;
+  }
+  return totals;
+}
+
+/// Axis ticks from 0 in steps of 1, 2 or 5 x 10^n, [count] steps up to at least [max].
+List<int> niceTicks(int max, {int count = 3}) {
+  if (max <= 0) return [0];
+  final raw = max / count;
+  var magnitude = 1;
+  while (magnitude * 10 <= raw) {
+    magnitude *= 10;
+  }
+  final step = [1, 2, 5, 10].map((m) => m * magnitude).firstWhere((s) => s >= raw);
+  return [for (var i = 0; i <= count; i++) i * step];
 }
 
 /// Change in percent, or null when there is nothing to compare with.

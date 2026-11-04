@@ -29,6 +29,35 @@ void main() {
     expect((r.income, r.expense, r.net, r.previousIncome, r.previousExpense), (500, 350, 150, 400, 350));
     expect(r.categories.map((c) => (c.name, c.amount)), [('Kos', 200), ('Makan', 120), ('Tanpa kategori', 30)]);
     expect(r.byNeedLevel, {'must': 200, 'need': 120, null: 30}); // 'want' spent nothing this month
+    expect(r.incomeCategories.map((c) => (c.name, c.amount)), [('Gaji', 500)]);
+  });
+
+  test('foldSmallest keeps the largest and sums the rest into Lainnya', () {
+    final ranked = [for (final (i, a) in [60, 50, 40, 30, 20, 10, 5].indexed) CategoryTotal('$i', 'c$i', a)];
+    expect(foldSmallest(ranked, 5).map((c) => (c.name, c.amount)), [
+      ('c0', 60), ('c1', 50), ('c2', 40), ('c3', 30), ('c4', 20), ('Lainnya', 15), //
+    ]);
+    expect(foldSmallest(ranked.take(6).toList(), 5).length, 6); // one left over stays itself
+  });
+
+  test('monthTotals buckets by local month, oldest first', () {
+    String at(int y, int m, int d) => DateTime(y, m, d, 12).toUtc().toIso8601String();
+    final rows = [
+      {'type': 'expense', 'amount': 100, 'occurred_at': at(2026, 11, 3)},
+      {'type': 'expense', 'amount': 50, 'occurred_at': at(2026, 11, 1)},
+      {'type': 'expense', 'amount': 70, 'occurred_at': at(2026, 9, 30)},
+      {'type': 'income', 'amount': 900, 'occurred_at': at(2026, 11, 2)},
+      {'type': 'expense', 'amount': 5, 'occurred_at': at(2026, 5, 31)}, // outside the window
+    ];
+    expect(monthTotals(rows, DateTime(2026, 11), 3, 'expense'), [70, 0, 150]);
+    expect(monthTotals(rows, DateTime(2027, 1), 3, 'income'), [900, 0, 0]); // across the year
+  });
+
+  test('niceTicks steps by 1, 2 or 5 and covers the max', () {
+    expect(niceTicks(5800000), [0, 2000000, 4000000, 6000000]);
+    expect(niceTicks(379000000), [0, 200000000, 400000000, 600000000]);
+    expect(niceTicks(90), [0, 50, 100, 150]);
+    expect(niceTicks(0), [0]);
   });
 
   test('percentChange', () {

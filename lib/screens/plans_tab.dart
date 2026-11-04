@@ -20,8 +20,8 @@ import 'record_form.dart';
 const periodLabels = {'week': 'Mingguan', 'month': 'Bulanan', 'year': 'Tahunan'};
 const _periodNouns = {'week': 'minggu', 'month': 'bulan', 'year': 'tahun'};
 
-class _BudgetView {
-  const _BudgetView(this.row, this.spent);
+class BudgetView {
+  const BudgetView(this.row, this.spent);
 
   final Map<String, dynamic> row;
   final int spent;
@@ -40,6 +40,27 @@ const _spentSql = '''
     AND (json_array_length(?5) = 0 OR EXISTS (
       SELECT 1 FROM json_each(r.label_ids) l WHERE l.value IN (SELECT value FROM json_each(?5))))''';
 
+/// Budgets with what each spent in its current period, kept fresh as records change.
+Stream<List<BudgetView>> watchBudgets() => db
+    .watch('SELECT * FROM budgets ORDER BY name', triggerOnTables: const ['budgets', 'records', 'accounts'])
+    .asyncMap((rows) async {
+      final now = DateTime.now();
+      return [
+        for (final b in rows)
+          await () async {
+            final (start, end) = periodRange(b['period'] as String, now);
+            final spent = await db.get(_spentSql, [
+              utcIso(start),
+              utcIso(end),
+              b['category_ids'] ?? '[]',
+              b['account_ids'] ?? '[]',
+              b['label_ids'] ?? '[]',
+            ]);
+            return BudgetView(b, spent['spent'] as int);
+          }(),
+      ];
+    });
+
 class PlansTab extends StatefulWidget {
   const PlansTab({super.key});
 
@@ -51,7 +72,7 @@ class _PlansTabState extends State<PlansTab> {
   // One subscription per query, results in fields (db.watch streams can be listened to once only).
   final _subs = <StreamSubscription<void>>[];
   List<Map<String, dynamic>>? _bills;
-  List<_BudgetView>? _budgets;
+  List<BudgetView>? _budgets;
   List<Map<String, dynamic>>? _goals;
 
   void _set(VoidCallback change) {
@@ -65,25 +86,7 @@ class _PlansTabState extends State<PlansTab> {
       db
           .watch('SELECT * FROM planned_payments ORDER BY next_due_date, name')
           .listen((rows) => _set(() => _bills = rows)),
-      db
-          .watch('SELECT * FROM budgets ORDER BY name', triggerOnTables: const ['budgets', 'records', 'accounts'])
-          .asyncMap((rows) async {
-            final now = DateTime.now();
-            return [
-              for (final b in rows)
-                await () async {
-                  final (start, end) = periodRange(b['period'] as String, now);
-                  final spent = await db.get(_spentSql, [
-                    utcIso(start),
-                    utcIso(end),
-                    b['category_ids'] ?? '[]',
-                    b['account_ids'] ?? '[]',
-                    b['label_ids'] ?? '[]',
-                  ]);
-                  return _BudgetView(b, spent['spent'] as int);
-                }(),
-            ];
-          })
+      watchBudgets()
           .listen((rows) => _set(() => _budgets = rows)),
       // Saved = the linked account's balance, derived from records like every balance.
       db
@@ -131,7 +134,7 @@ class _PlansTabState extends State<PlansTab> {
                 const SizedBox(height: 16),
                 if (bills.isEmpty) const _NoBills() else _Bills(bills),
                 gap,
-                if (budgets.isEmpty) const _NoBudgets() else _Budgets(budgets),
+                if (budgets.isEmpty) const NoBudgets() else BudgetList(budgets),
                 gap,
                 if (goals.isEmpty) const _NoGoals() else _Goals(goals),
               ],
@@ -464,10 +467,10 @@ class _NoBills extends StatelessWidget {
 
 // ---------------------------------------------------------------- budgets (A5)
 
-class _Budgets extends StatelessWidget {
-  const _Budgets(this.budgets);
+class BudgetList extends StatelessWidget {
+  const BudgetList(this.budgets, {super.key});
 
-  final List<_BudgetView> budgets;
+  final List<BudgetView> budgets;
 
   @override
   Widget build(BuildContext context) {
@@ -504,7 +507,7 @@ class _Budgets extends StatelessWidget {
 class _BudgetCard extends StatelessWidget {
   const _BudgetCard(this.b, {required this.now});
 
-  final _BudgetView b;
+  final BudgetView b;
   final DateTime now;
 
   @override
@@ -632,8 +635,8 @@ class _BudgetCard extends StatelessWidget {
   }
 }
 
-class _NoBudgets extends StatelessWidget {
-  const _NoBudgets();
+class NoBudgets extends StatelessWidget {
+  const NoBudgets({super.key});
 
   @override
   Widget build(BuildContext context) {

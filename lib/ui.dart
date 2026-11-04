@@ -38,6 +38,49 @@ void showDone(BuildContext context, String title, String detail, {required VoidC
   );
 }
 
+/// One choice out of a few, as one pill track (Keluar / Masuk / Transfer).
+class PillSwitch<T> extends StatelessWidget {
+  const PillSwitch({super.key, required this.options, required this.value, required this.onChanged, this.fontSize = 15});
+
+  final List<(T, String)> options;
+  final T value;
+  final ValueChanged<T> onChanged;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(color: c.surfaceMuted, borderRadius: BorderRadius.circular(26)),
+      child: Row(
+        children: [
+          for (final (option, label) in options)
+            Expanded(
+              child: Semantics(
+                selected: value == option,
+                child: TextButton(
+                  onPressed: () => onChanged(option),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                    shape: const StadiumBorder(),
+                    backgroundColor: value == option ? c.primary : Colors.transparent,
+                    foregroundColor: value == option ? c.onPrimary : c.ink,
+                    textStyle: AppText.button.copyWith(
+                      fontSize: fontSize,
+                      fontWeight: value == option ? FontWeight.w500 : FontWeight.w400,
+                    ),
+                  ),
+                  child: Text(label),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Chart and status colors. Bars, need levels and the "good" delta come from the design
 /// tokens in theme.dart (AppColors), so they follow light and dark mode. Need-level colors are
 /// close in hue, so every colored part is listed with its name and amount beside it.
