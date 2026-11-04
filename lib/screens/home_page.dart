@@ -47,10 +47,36 @@ class _HomePageState extends State<HomePage> {
     await scheduleReminders(const []); // the next user on this phone must not get this user's bills
   }
 
-  // Sync status and the menu: in the app bar, or in Beranda's own header.
+  // The app menu. Beranda opens it from the avatar ([child]); other tabs from the app bar.
+  Widget _menu(BuildContext context, {Widget? child}) => PopupMenuButton<String>(
+    tooltip: 'Menu',
+    onSelected: (choice) => switch (choice) {
+      'categories' => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const CategoriesPage())),
+      'labels' => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const LabelsPage())),
+      _ => _logout(),
+    },
+    itemBuilder: (context) => const [
+      PopupMenuItem(
+        value: 'categories',
+        child: ListTile(leading: Icon(Icons.category_outlined), title: Text('Kelola kategori')),
+      ),
+      PopupMenuItem(
+        value: 'labels',
+        child: ListTile(leading: Icon(Icons.sell_outlined), title: Text('Kelola label')),
+      ),
+      PopupMenuItem(
+        value: 'logout',
+        child: ListTile(leading: Icon(Icons.logout), title: Text('Keluar')),
+      ),
+    ],
+    child: child,
+  );
+
+  // Sync status and the menu, in the app bar of every tab but Beranda.
   List<Widget> _actions(BuildContext context) => [
     StreamBuilder(
       stream: db.statusStream,
+      initialData: db.currentStatus, // the stream only reports changes
       builder: (context, snap) {
         final s = snap.data;
         final (icon, label) = s == null || !s.connected
@@ -61,43 +87,24 @@ class _HomePageState extends State<HomePage> {
         return IconButton(icon: Icon(icon), tooltip: label, onPressed: () => showMessage(context, label));
       },
     ),
-    PopupMenuButton<String>(
-      tooltip: 'Menu',
-      onSelected: (choice) => switch (choice) {
-        'categories' => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const CategoriesPage())),
-        'labels' => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const LabelsPage())),
-        _ => _logout(),
-      },
-      itemBuilder: (context) => const [
-        PopupMenuItem(
-          value: 'categories',
-          child: ListTile(leading: Icon(Icons.category_outlined), title: Text('Kelola kategori')),
-        ),
-        PopupMenuItem(
-          value: 'labels',
-          child: ListTile(leading: Icon(Icons.sell_outlined), title: Text('Kelola label')),
-        ),
-        PopupMenuItem(
-          value: 'logout',
-          child: ListTile(leading: Icon(Icons.logout), title: Text('Keluar')),
-        ),
-      ],
-    ),
+    _menu(context),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final actions = _actions(context);
     return Scaffold(
       // Beranda draws its own header (greeting, sync, menu), as in the design.
       appBar: _tab == 0
           ? null
           : AppBar(
               title: Text(const ['Beranda', 'Transaksi', 'Tagihan', 'Rencana', 'Laporan'][_tab]),
-              actions: actions,
+              actions: _actions(context),
             ),
       body: switch (_tab) {
-        0 => DashboardTab(actions: actions, onOpenTab: (i) => setState(() => _tab = i)),
+        0 => DashboardTab(
+          menu: (child) => _menu(context, child: child),
+          onOpenTab: (i) => setState(() => _tab = i),
+        ),
         1 => const RecordsTab(),
         2 => const BillsTab(),
         3 => const PlansTab(),

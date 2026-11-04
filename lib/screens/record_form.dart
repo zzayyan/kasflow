@@ -87,7 +87,7 @@ Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
   );
   if (!context.mounted) return;
   if (accounts.isEmpty) {
-    showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun saya.');
+    showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
     return;
   }
   final categories = await db.getAll(

@@ -70,7 +70,7 @@ class AccountsTab extends StatelessWidget {
   }
 }
 
-/// The account list as its own page, opened from Beranda ("Akun saya").
+/// The account list as its own page, opened from Beranda ("Akun").
 class AccountsPage extends StatelessWidget {
   const AccountsPage({super.key});
 

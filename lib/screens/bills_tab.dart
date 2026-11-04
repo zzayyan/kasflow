@@ -182,7 +182,7 @@ Future<void> showBillForm(BuildContext context) async {
     'SELECT id, name, type, keywords FROM categories WHERE archived = 0 ORDER BY name',
   );
   if (!context.mounted) return;
-  if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun saya.');
+  if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,

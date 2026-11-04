@@ -97,65 +97,7 @@ class QuickInputBar extends StatefulWidget {
 class _QuickInputBarState extends State<QuickInputBar> {
   final _text = TextEditingController();
 
-  Future<void> _submit() async {
-    final input = _text.text.trim();
-    if (input.isEmpty) return;
-    final accounts = await db.getAll('SELECT id, name, provider, currency FROM accounts WHERE archived = 0');
-    final categories = await db.getAll('SELECT id, name, type, keywords FROM categories WHERE archived = 0');
-    if (!mounted) return;
-    if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun saya.');
-    final entry = parseQuickInput(input, accounts: accounts, categories: categories);
-    if (entry == null) return showMessage(context, 'Nominal tidak ditemukan. Contoh: bakso 25rb pakai dana');
-
-    // No account named: use the one from the latest record, so a daily wallet needs no typing.
-    final last = await db.getOptional('SELECT account_id FROM records ORDER BY created_at DESC LIMIT 1');
-    final accountId =
-        entry.accountId ??
-        accounts.map((a) => a['id'] as String).where((id) => id == last?['account_id']).firstOrNull ??
-        accounts.first['id'] as String;
-    final labelIds = await resolveLabelIds(entry.labels); // "#liburan" creates the label if needed
-    _text.clear();
-    if (!mounted) return;
-
-    if (entry.categoryId == null) {
-      // Unknown words: let the user pick, which also teaches the keyword for next time.
-      return showRecordForm(
-        context,
-        prefill: Prefill(
-          amount: entry.amount,
-          type: entry.type,
-          accountId: accountId,
-          note: entry.note,
-          date: entry.date,
-          source: 'nlp',
-          labelIds: labelIds,
-        ),
-      );
-    }
-    final account = accounts.firstWhere((a) => a['id'] == accountId);
-    final id = await insertRecord(
-      accountId: accountId,
-      type: entry.type,
-      amount: entry.amount,
-      currency: account['currency'] as String,
-      occurredAt: entry.date,
-      categoryId: entry.categoryId,
-      note: entry.note.isEmpty ? null : entry.note,
-      source: 'nlp',
-      labelIds: labelIds,
-    );
-    if (!mounted) return;
-    final category = categories.firstWhere((c) => c['id'] == entry.categoryId)['name'];
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Tersimpan: $category · ${formatAmount(entry.amount)} · ${account['name']}'),
-        action: SnackBarAction(
-          label: 'Batalkan',
-          onPressed: () => db.execute('DELETE FROM records WHERE id = ?', [id]),
-        ),
-      ),
-    );
-  }
+  Future<void> _submit() => submitQuickInput(context, _text.text, onParsed: _text.clear);
 
   @override
   Widget build(BuildContext context) {
@@ -174,6 +116,74 @@ class _QuickInputBarState extends State<QuickInputBar> {
       ),
     );
   }
+}
+
+/// Saves one line of quick input ("bakso 25rb pakai dana"). [onParsed] runs once the line is
+/// understood. With [review], or when no category fits, the record form opens instead of saving.
+Future<void> submitQuickInput(
+  BuildContext context,
+  String text, {
+  VoidCallback? onParsed,
+  bool review = false,
+}) async {
+  final input = text.trim();
+  if (input.isEmpty) return;
+  final accounts = await db.getAll('SELECT id, name, provider, currency FROM accounts WHERE archived = 0');
+  final categories = await db.getAll('SELECT id, name, type, keywords FROM categories WHERE archived = 0');
+  if (!context.mounted) return;
+  if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
+  final entry = parseQuickInput(input, accounts: accounts, categories: categories);
+  if (entry == null) return showMessage(context, 'Nominal tidak ditemukan. Contoh: bakso 25rb pakai dana');
+
+  // No account named: use the one from the latest record, so a daily wallet needs no typing.
+  final last = await db.getOptional('SELECT account_id FROM records ORDER BY created_at DESC LIMIT 1');
+  final accountId =
+      entry.accountId ??
+      accounts.map((a) => a['id'] as String).where((id) => id == last?['account_id']).firstOrNull ??
+      accounts.first['id'] as String;
+  final labelIds = await resolveLabelIds(entry.labels); // "#liburan" creates the label if needed
+  onParsed?.call();
+  if (!context.mounted) return;
+
+  if (review || entry.categoryId == null) {
+    // Unknown words: let the user pick, which also teaches the keyword for next time.
+    return showRecordForm(
+      context,
+      prefill: Prefill(
+        amount: entry.amount,
+        type: entry.type,
+        accountId: accountId,
+        categoryId: entry.categoryId,
+        note: entry.note,
+        date: entry.date,
+        source: 'nlp',
+        labelIds: labelIds,
+      ),
+    );
+  }
+  final account = accounts.firstWhere((a) => a['id'] == accountId);
+  final id = await insertRecord(
+    accountId: accountId,
+    type: entry.type,
+    amount: entry.amount,
+    currency: account['currency'] as String,
+    occurredAt: entry.date,
+    categoryId: entry.categoryId,
+    note: entry.note.isEmpty ? null : entry.note,
+    source: 'nlp',
+    labelIds: labelIds,
+  );
+  if (!context.mounted) return;
+  final category = categories.firstWhere((c) => c['id'] == entry.categoryId)['name'];
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text('Tersimpan: $category · ${formatAmount(entry.amount)} · ${account['name']}'),
+      action: SnackBarAction(
+        label: 'Batalkan',
+        onPressed: () => db.execute('DELETE FROM records WHERE id = ?', [id]),
+      ),
+    ),
+  );
 }
 
 // ---------------------------------------------------------------- notification inbox (B1)
