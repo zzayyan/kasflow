@@ -2,6 +2,13 @@ import 'package:cashflow_app/reports.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('periodElapsed counts today as passed', () {
+    expect(periodElapsed('month', DateTime(2026, 11, 4, 13)), closeTo(4 / 30, 1e-9));
+    expect(periodElapsed('month', DateTime(2026, 11, 30, 23)), 1.0);
+    expect(periodElapsed('week', DateTime(2026, 11, 2)), closeTo(1 / 7, 1e-9)); // Monday
+    expect(periodElapsed('year', DateTime(2026, 1, 1)), closeTo(1 / 365, 1e-9));
+  });
+
   test('periodRange: calendar week (Monday), month and year', () {
     final tue = DateTime(2026, 11, 3, 14);
     expect(periodRange('week', tue), (DateTime(2026, 11, 2), DateTime(2026, 11, 9)));

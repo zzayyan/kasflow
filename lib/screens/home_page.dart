@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../db.dart';
+import '../theme.dart';
 import '../ui.dart';
 import 'bills_tab.dart';
 import 'categories_page.dart';
@@ -93,53 +94,129 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Beranda and Transaksi draw their own header, as in the design; the menu sits on Beranda.
-      appBar: _tab <= 1
-          ? null
-          : AppBar(
-              title: Text(const ['Beranda', 'Transaksi', 'Tagihan', 'Rencana', 'Laporan'][_tab]),
-              actions: _actions(context),
-            ),
+      // Beranda, Transaksi and Rencana draw their own header, as in the design; the menu sits on
+      // Beranda's avatar. Laporan keeps an app bar until its screen is redone.
+      appBar: _tab < 3 ? null : AppBar(title: const Text('Laporan'), actions: _actions(context)),
       body: switch (_tab) {
         0 => DashboardTab(
           menu: (child) => _menu(context, child: child),
           onOpenTab: (i) => setState(() => _tab = i),
         ),
         1 => const RecordsTab(),
-        2 => const BillsTab(),
-        3 => const PlansTab(),
+        2 => const PlansTab(),
         _ => const ReportTab(),
       },
-      floatingActionButton: _tab == 4
-          ? null // the report has nothing to add
-          : FloatingActionButton(
-              onPressed: () => [showRecordForm, showRecordForm, showBillForm, showPlanChooser][_tab](context),
-              child: const Icon(Icons.add),
+      bottomNavigationBar: StreamBuilder(
+        stream: _dueBills,
+        builder: (context, snap) => _BottomNav(
+          selected: _tab,
+          dueBills: snap.data ?? 0,
+          onSelect: (i) => setState(() => _tab = i),
+          onAdd: () => showRecordForm(context),
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomNav extends StatelessWidget {
+  const _BottomNav({required this.selected, required this.dueBills, required this.onSelect, required this.onAdd});
+
+  final int selected;
+  final int dueBills; // bills due soon or late, shown on Rencana
+  final ValueChanged<int> onSelect;
+  final VoidCallback onAdd; // the + in the middle: always records a transaction
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    Widget item(int i, IconData icon, IconData selectedIcon, String label, {int badge = 0}) {
+      final on = selected == i;
+      return Expanded(
+        child: Semantics(
+          selected: on,
+          button: true,
+          label: badge > 0 ? '$label, $badge tagihan perlu dibayar' : label,
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: () => onSelect(i),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Badge(
+                  isLabelVisible: badge > 0,
+                  backgroundColor: c.alert,
+                  textColor: c.onAlert,
+                  label: Text('$badge'),
+                  child: Icon(on ? selectedIcon : icon, color: on ? c.ink : c.inkMuted),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: AppText.caption.copyWith(
+                    color: on ? c.ink : c.inkMuted,
+                    fontWeight: on ? FontWeight.w600 : null,
+                  ),
+                ),
+              ],
             ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Beranda',
           ),
-          const NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Transaksi'),
-          NavigationDestination(
-            icon: StreamBuilder(
-              stream: _dueBills,
-              builder: (context, snap) => Badge(
-                isLabelVisible: (snap.data ?? 0) > 0,
-                label: Text('${snap.data}'),
-                child: const Icon(Icons.event_repeat),
+        ),
+      );
+    }
+
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    // Inside the bar, its top flush with the bar's top edge (84 tall with 6 below, as drawn).
+    final add = Expanded(
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Container(
+          width: 60,
+          height: 60,
+          decoration: BoxDecoration(
+            color: c.primary,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: dark ? Colors.black.withValues(alpha: 0.5) : c.primary.withValues(alpha: 0.3),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onAdd,
+              child: Tooltip(
+                message: 'Catat transaksi',
+                child: Icon(Icons.add, size: 28, color: c.onPrimary),
               ),
             ),
-            label: 'Tagihan',
           ),
-          const NavigationDestination(icon: Icon(Icons.savings_outlined), label: 'Rencana'),
-          const NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Laporan'),
-        ],
+        ),
+      ),
+    );
+
+    return Material(
+      color: c.surface,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          height: 84,
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+          decoration: BoxDecoration(border: Border(top: BorderSide(color: c.surfaceMuted))),
+          child: Row(
+            children: [
+              item(0, Icons.home_outlined, Icons.home, 'Beranda'),
+              item(1, Icons.format_list_bulleted, Icons.format_list_bulleted, 'Transaksi'),
+              add,
+              item(2, Icons.track_changes_outlined, Icons.track_changes, 'Rencana', badge: dueBills),
+              item(3, Icons.bar_chart_outlined, Icons.bar_chart, 'Laporan'),
+            ],
+          ),
+        ),
       ),
     );
   }

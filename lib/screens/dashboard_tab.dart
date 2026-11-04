@@ -28,7 +28,7 @@ class DashboardTab extends StatefulWidget {
   /// Wraps the avatar in the app menu (categories, labels, logout).
   final Widget Function(Widget child) menu;
 
-  /// Switches the bottom navigation: 1 Transaksi, 4 Laporan.
+  /// Switches the bottom navigation: 1 Transaksi, 3 Laporan.
   final ValueChanged<int> onOpenTab;
 
   @override
@@ -136,7 +136,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
         child: recent == null || accounts == null
             ? const SizedBox.shrink()
             : ListView(
-                padding: const EdgeInsets.fromLTRB(AppSpace.page, 16, AppSpace.page, 96), // clear of the + button
+                padding: const EdgeInsets.fromLTRB(AppSpace.page, 16, AppSpace.page, 24),
                 children: [
                   _Header(
                     isNew: isNew,
@@ -151,7 +151,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                     caption: isNew ? 'Total saldo · $accountCount akun' : 'Total saldo',
                     hidden: _hidden,
                     onToggleHidden: isNew ? null : () => setState(() => _hidden = !_hidden),
-                    onReport: isNew ? null : () => widget.onOpenTab(4),
+                    onReport: isNew ? null : () => widget.onOpenTab(3),
                   ),
                   gap,
                   if (isNew) ...[

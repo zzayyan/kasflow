@@ -14,6 +14,15 @@
   }
 }
 
+/// How much of the period around [now] has passed, 0 to 1, counting today as passed: the "today"
+/// marker on a budget bar. Spending ahead of it runs out before the period ends.
+double periodElapsed(String period, DateTime now) {
+  final (start, end) = periodRange(period, now);
+  final days = end.difference(start).inHours / 24; // hours: a DST day is 23 or 25 hours long
+  final passed = DateTime(now.year, now.month, now.day + 1).difference(start).inHours / 24;
+  return (passed / days).clamp(0.0, 1.0);
+}
+
 class CategoryTotal {
   const CategoryTotal(this.id, this.name, this.amount);
   final String? id; // null = records without a category

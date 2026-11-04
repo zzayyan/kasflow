@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -5,138 +6,136 @@ import 'package:intl/intl.dart';
 
 import '../db.dart';
 import '../money.dart';
+import '../recurrence.dart';
 import '../reports.dart';
+import '../theme.dart';
 import '../ui.dart';
+import 'bills_tab.dart';
 import 'labels_page.dart';
 import 'record_form.dart';
 
-// The Rencana tab: saving goals (A6) and budgets (A5).
+// The Rencana tab: planned payments (A7), budgets (A5) and saving goals (A6), after the
+// "E · Rencana" and "Kosong · Rencana" artboards of the Cashflow UI/UX canvas.
 
 const periodLabels = {'week': 'Mingguan', 'month': 'Bulanan', 'year': 'Tahunan'};
+const _periodNouns = {'week': 'minggu', 'month': 'bulan', 'year': 'tahun'};
 
 class _BudgetView {
-  const _BudgetView(this.row, this.spent, this.end);
+  const _BudgetView(this.row, this.spent);
 
   final Map<String, dynamic> row;
   final int spent;
-  final DateTime end;
 }
 
-class BudgetsTab extends StatelessWidget {
-  const BudgetsTab({super.key});
+// Spending counts confirmed expenses in the budget's current period, on accounts that count
+// towards statistics, limited to the budget's categories, accounts and labels (empty list = all;
+// a record matches a label filter when it carries any of those labels).
+const _spentSql = '''
+  SELECT COALESCE(SUM(r.amount), 0) AS spent
+  FROM records r JOIN accounts a ON a.id = r.account_id
+  WHERE r.type = 'expense' AND r.status = 'confirmed' AND a.exclude_from_stats = 0
+    AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?2)
+    AND (json_array_length(?3) = 0 OR r.category_id IN (SELECT value FROM json_each(?3)))
+    AND (json_array_length(?4) = 0 OR r.account_id IN (SELECT value FROM json_each(?4)))
+    AND (json_array_length(?5) = 0 OR EXISTS (
+      SELECT 1 FROM json_each(r.label_ids) l WHERE l.value IN (SELECT value FROM json_each(?5))))''';
 
-  // Spending counts confirmed expenses in the budget's current period, on accounts that count
-  // towards statistics, limited to the budget's categories, accounts and labels (empty list = all;
-  // a record matches a label filter when it carries any of those labels).
-  static const _spentSql = '''
-    SELECT COALESCE(SUM(r.amount), 0) AS spent
-    FROM records r JOIN accounts a ON a.id = r.account_id
-    WHERE r.type = 'expense' AND r.status = 'confirmed' AND a.exclude_from_stats = 0
-      AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?2)
-      AND (json_array_length(?3) = 0 OR r.category_id IN (SELECT value FROM json_each(?3)))
-      AND (json_array_length(?4) = 0 OR r.account_id IN (SELECT value FROM json_each(?4)))
-      AND (json_array_length(?5) = 0 OR EXISTS (
-        SELECT 1 FROM json_each(r.label_ids) l WHERE l.value IN (SELECT value FROM json_each(?5))))''';
-
-  Stream<List<_BudgetView>> _watch() => db
-      .watch('SELECT * FROM budgets ORDER BY name', triggerOnTables: const ['budgets', 'records', 'accounts'])
-      .asyncMap((rows) async {
-        final now = DateTime.now();
-        return [
-          for (final b in rows)
-            await () async {
-              final (start, end) = periodRange(b['period'] as String, now);
-              final spent = await db.get(_spentSql, [
-                utcIso(start),
-                utcIso(end),
-                b['category_ids'] ?? '[]',
-                b['account_ids'] ?? '[]',
-                b['label_ids'] ?? '[]',
-              ]);
-              return _BudgetView(b, spent['spent'] as int, end);
-            }(),
-        ];
-      });
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: _watch(),
-      builder: (context, snap) {
-        final budgets = snap.data;
-        if (budgets == null) return const SizedBox.shrink();
-        if (budgets.isEmpty) return const _Hint('Belum ada budget. Contoh: Makan bulanan 1,5jt.');
-        return Column(children: [for (final b in budgets) _BudgetCard(b)]);
-      },
-    );
-  }
-}
-
-/// Meter: the fill carries the state, the track is a lighter step of the same color.
-class _Meter extends StatelessWidget {
-  const _Meter({required this.value, required this.fill, required this.label});
-
-  final double value;
-  final Color fill;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: label,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: Container(
-          height: 8,
-          color: fill.withValues(alpha: 0.22),
-          alignment: Alignment.centerLeft,
-          child: FractionallySizedBox(
-            heightFactor: 1, // a childless ColoredBox would otherwise collapse to 0px tall
-            widthFactor: value.clamp(0.0, 1.0),
-            child: ColoredBox(color: fill),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Hint extends StatelessWidget {
-  const _Hint(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
-    child: Text(text, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-  );
-}
-
-// ---------------------------------------------------------------- plans tab: goals (A6) + budgets (A5)
-
-class PlansTab extends StatelessWidget {
+class PlansTab extends StatefulWidget {
   const PlansTab({super.key});
 
   @override
+  State<PlansTab> createState() => _PlansTabState();
+}
+
+class _PlansTabState extends State<PlansTab> {
+  // One subscription per query, results in fields (db.watch streams can be listened to once only).
+  final _subs = <StreamSubscription<void>>[];
+  List<Map<String, dynamic>>? _bills;
+  List<_BudgetView>? _budgets;
+  List<Map<String, dynamic>>? _goals;
+
+  void _set(VoidCallback change) {
+    if (mounted) setState(change);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _subs.addAll([
+      db
+          .watch('SELECT * FROM planned_payments ORDER BY next_due_date, name')
+          .listen((rows) => _set(() => _bills = rows)),
+      db
+          .watch('SELECT * FROM budgets ORDER BY name', triggerOnTables: const ['budgets', 'records', 'accounts'])
+          .asyncMap((rows) async {
+            final now = DateTime.now();
+            return [
+              for (final b in rows)
+                await () async {
+                  final (start, end) = periodRange(b['period'] as String, now);
+                  final spent = await db.get(_spentSql, [
+                    utcIso(start),
+                    utcIso(end),
+                    b['category_ids'] ?? '[]',
+                    b['account_ids'] ?? '[]',
+                    b['label_ids'] ?? '[]',
+                  ]);
+                  return _BudgetView(b, spent['spent'] as int);
+                }(),
+            ];
+          })
+          .listen((rows) => _set(() => _budgets = rows)),
+      // Saved = the linked account's balance, derived from records like every balance.
+      db
+          .watch('''
+            SELECT g.*, a.name AS account_name, COALESCE(b.balance, 0) AS saved
+            FROM goals g
+            LEFT JOIN accounts a ON a.id = g.account_id
+            LEFT JOIN ($accountBalancesSql) b ON b.id = g.account_id
+            ORDER BY g.state = 'paused', g.target_date IS NULL, g.target_date, g.name''')
+          .listen((rows) => _set(() => _goals = rows)),
+    ]);
+  }
+
+  @override
+  void dispose() {
+    for (final s in _subs) {
+      unawaited(s.cancel());
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    Widget header(String title, String add, VoidCallback onAdd) => Padding(
-      padding: const EdgeInsets.fromLTRB(4, 8, 0, 4),
-      child: Row(
-        children: [
-          Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
-          TextButton.icon(onPressed: onAdd, icon: const Icon(Icons.add), label: Text(add)),
-        ],
-      ),
-    );
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 88),
-      children: [
-        header('Goal tabungan', 'Goal', () => showGoalForm(context)),
-        const _GoalsList(),
-        header('Budget', 'Budget', () => showBudgetForm(context)),
-        const BudgetsTab(),
-      ],
+    final c = AppColors.of(context);
+    final bills = _bills, budgets = _budgets, goals = _goals;
+    const gap = SizedBox(height: 22);
+    return SafeArea(
+      bottom: false,
+      child: bills == null || budgets == null || goals == null
+          ? const SizedBox.shrink()
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(AppSpace.page, 16, AppSpace.page, 24),
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text('Rencana', style: AppText.title)),
+                    IconButton(
+                      tooltip: 'Tambah tagihan, budget, atau goal',
+                      onPressed: () => showPlanChooser(context),
+                      style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
+                      icon: Icon(Icons.add, color: c.ink),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (bills.isEmpty) const _NoBills() else _Bills(bills),
+                gap,
+                if (budgets.isEmpty) const _NoBudgets() else _Budgets(budgets),
+                gap,
+                if (goals.isEmpty) const _NoGoals() else _Goals(goals),
+              ],
+            ),
     );
   }
 }
@@ -149,10 +148,10 @@ Future<void> showPlanChooser(BuildContext context) async {
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
-            leading: const Icon(Icons.flag_outlined),
-            title: const Text('Goal tabungan baru'),
-            subtitle: const Text('Target nominal, misalnya dana darurat atau HP baru'),
-            onTap: () => Navigator.pop(context, 'goal'),
+            leading: const Icon(Icons.event_repeat),
+            title: const Text('Tagihan rutin baru'),
+            subtitle: const Text('Kos, listrik, langganan, atau gaji. Diingatkan sebelum jatuh tempo'),
+            onTap: () => Navigator.pop(context, 'bill'),
           ),
           ListTile(
             leading: const Icon(Icons.savings_outlined),
@@ -160,34 +159,538 @@ Future<void> showPlanChooser(BuildContext context) async {
             subtitle: const Text('Batas pengeluaran per minggu, bulan, atau tahun'),
             onTap: () => Navigator.pop(context, 'budget'),
           ),
+          ListTile(
+            leading: const Icon(Icons.flag_outlined),
+            title: const Text('Goal tabungan baru'),
+            subtitle: const Text('Target nominal, misalnya dana darurat atau HP baru'),
+            onTap: () => Navigator.pop(context, 'goal'),
+          ),
         ],
       ),
     ),
   );
   if (!context.mounted) return;
-  if (choice == 'goal') return showGoalForm(context);
-  if (choice == 'budget') return showBudgetForm(context);
+  return switch (choice) {
+    'bill' => showBillForm(context),
+    'budget' => showBudgetForm(context),
+    'goal' => showGoalForm(context),
+    _ => null,
+  };
 }
 
-class _GoalsList extends StatelessWidget {
-  const _GoalsList();
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.title, {this.trailing});
+
+  final String title;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+    child: Row(
+      children: [
+        Expanded(child: Text(title, style: AppText.heading)),
+        ?trailing,
+      ],
+    ),
+  );
+}
+
+/// An empty section: what it is for, then the way to start.
+class _EmptyCard extends StatelessWidget {
+  const _EmptyCard({required this.title, required this.text, required this.action, this.top});
+
+  final String title;
+  final String text;
+  final Widget action;
+  final Widget? top;
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder(
-      // Saved = the linked account's balance, derived from records like every balance.
-      stream: db.watch('''
-        SELECT g.*, a.name AS account_name, COALESCE(b.balance, 0) AS saved
-        FROM goals g
-        LEFT JOIN accounts a ON a.id = g.account_id
-        LEFT JOIN ($accountBalancesSql) b ON b.id = g.account_id
-        ORDER BY g.state = 'paused', g.target_date IS NULL, g.target_date, g.name'''),
-      builder: (context, snap) {
-        final goals = snap.data;
-        if (goals == null) return const SizedBox.shrink();
-        if (goals.isEmpty) return const _Hint('Belum ada goal. Contoh: Dana darurat 10jt, liburan, HP baru.');
-        return Column(children: [for (final g in goals) _GoalCard(g)]);
-      },
+    final c = AppColors.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+      decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(AppRadius.card)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (top != null) ...[top!, const SizedBox(height: 14)],
+          Text(title, style: AppText.bodyStrong),
+          const SizedBox(height: 4),
+          Text(text, style: AppText.label.copyWith(color: c.inkMuted, height: 1.4)),
+          const SizedBox(height: 14),
+          action,
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- bills (A7)
+
+class _Bills extends StatelessWidget {
+  const _Bills(this.bills);
+
+  final List<Map<String, dynamic>> bills;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final now = DateTime.now();
+    // Unpaid this month: expense bills due before next month, late ones included.
+    final (_, monthEnd) = periodRange('month', now);
+    final unpaid = [
+      for (final b in bills)
+        if (b['type'] == 'expense' && DateTime.parse(b['next_due_date'] as String).isBefore(monthEnd)) b,
+    ];
+    final total = unpaid.fold<int>(0, (sum, b) => sum + (b['amount'] as int));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          decoration: BoxDecoration(
+            color: c.hero,
+            borderRadius: BorderRadius.circular(AppRadius.hero),
+            border: Theme.of(context).brightness == Brightness.dark ? Border.all(color: c.heroChip) : null,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tagihan belum dibayar · ${DateFormat('MMM', 'id_ID').format(now)}',
+                      style: AppText.label.copyWith(color: c.onHeroMuted),
+                    ),
+                    const SizedBox(height: 6),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text('Rp', style: AppText.body.copyWith(fontSize: 16, color: c.onHeroMuted)),
+                          const SizedBox(width: 6),
+                          Text(
+                            NumberFormat.decimalPattern('id_ID').format(total / 100),
+                            style: AppText.amountLg.copyWith(fontSize: 30, height: 1, color: c.onHero),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: c.heroChip, borderRadius: BorderRadius.circular(10)),
+                child: Text(
+                  unpaid.isEmpty ? 'Lunas' : '${unpaid.length} tagihan',
+                  style: AppText.caption.copyWith(fontWeight: FontWeight.w600, color: c.onHeroChip),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        const _SectionTitle('Tagihan'),
+        Material(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              children: [
+                for (final (i, b) in bills.indexed) ...[
+                  if (i > 0) const Divider(indent: 16, endIndent: 16),
+                  _BillRow(b, now: now),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BillRow extends StatelessWidget {
+  const _BillRow(this.b, {required this.now});
+
+  final Map<String, dynamic> b;
+  final DateTime now;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final due = DateTime.parse(b['next_due_date'] as String);
+    final (days, level) = dueStatus(due, b['remind_days_before'] as int, now);
+    final income = b['type'] == 'income';
+    final late = level == DueLevel.overdue;
+    final amount = formatAmount(b['amount'] as int);
+    // The date block carries the state; the line under the name says it in words with an icon.
+    final (blockBg, blockInk) = late
+        ? (c.alertSoft, c.alert)
+        : income
+        ? (c.primarySoft, c.primary)
+        : (c.surfaceMuted, c.ink);
+    final status = income
+        ? 'Pemasukan rutin · ${dueLabel(days).toLowerCase()}'
+        : '${dueLabel(days).replaceFirst('Terlambat', 'Telat')} · $amount';
+    final statusColor = late ? c.alert : c.inkMuted;
+    final action = income ? 'Terima' : 'Bayar';
+    return InkWell(
+      onTap: () => payBill(context, b),
+      onLongPress: () => billOptions(context, b),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 50,
+              decoration: BoxDecoration(color: blockBg, borderRadius: BorderRadius.circular(14)),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '${due.day}',
+                    style: AppText.bodyStrong.copyWith(fontSize: 16, fontWeight: FontWeight.w700, color: blockInk),
+                  ),
+                  Text(
+                    DateFormat('MMM', 'id_ID').format(due).toUpperCase(),
+                    style: AppText.caption.copyWith(fontSize: 10, fontWeight: FontWeight.w600, color: blockInk),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpace.gap),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(b['name'] as String, style: AppText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      if (level != DueLevel.upcoming) ...[
+                        Icon(late ? Icons.error_outline : Icons.schedule, size: 13, color: statusColor),
+                        const SizedBox(width: 4),
+                      ],
+                      Flexible(
+                        child: Text(
+                          status,
+                          style: AppText.caption.copyWith(
+                            color: statusColor,
+                            fontWeight: late ? FontWeight.w500 : null,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Due soon or late: the button to settle it. Later bills open the same form on tap.
+            if (level == DueLevel.overdue)
+              FilledButton(
+                onPressed: () => payBill(context, b),
+                style: FilledButton.styleFrom(minimumSize: const Size(64, 40), textStyle: AppText.label),
+                child: Text(action),
+              )
+            else if (level == DueLevel.soon)
+              OutlinedButton(
+                onPressed: () => payBill(context, b),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(64, 40), textStyle: AppText.label),
+                child: Text(action),
+              )
+            else if (income)
+              Text('+$amount', style: AppText.amount.copyWith(fontSize: 14, color: c.income)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NoBills extends StatelessWidget {
+  const _NoBills();
+
+  static const _suggestions = [
+    ('Kos', 'expense'),
+    ('Listrik', 'expense'),
+    ('Internet', 'expense'),
+    ('Langganan', 'expense'),
+    ('Gaji', 'income'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionTitle('Tagihan'),
+        _EmptyCard(
+          title: 'Belum ada tagihan rutin',
+          text: 'Tambahkan sekali, nanti diingatkan sebelum jatuh tempo dan tinggal ketuk Bayar.',
+          action: Wrap(
+            spacing: AppSpace.tight,
+            runSpacing: AppSpace.tight,
+            children: [
+              for (final (name, type) in _suggestions)
+                ActionChip(
+                  avatar: Icon(Icons.add, size: 16, color: type == 'income' ? c.primary : c.ink),
+                  label: Text(name),
+                  backgroundColor: type == 'income' ? c.primarySoft : null,
+                  labelStyle: AppText.label.copyWith(fontSize: 14, color: type == 'income' ? c.primary : c.ink),
+                  onPressed: () => showBillForm(context, name: name, type: type),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------- budgets (A5)
+
+class _Budgets extends StatelessWidget {
+  const _Budgets(this.budgets);
+
+  final List<_BudgetView> budgets;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final now = DateTime.now();
+    final periods = {for (final b in budgets) b.row['period'] as String};
+    // One period across the cards: the legend can say how far into it today is.
+    final legend = periods.length == 1
+        ? 'hari ini (${(periodElapsed(periods.first, now) * 100).round()}% ${_periodNouns[periods.first]})'
+        : 'hari ini';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionTitle(
+          'Budget',
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 2, height: 12, color: c.ink),
+              const SizedBox(width: 6),
+              Text(legend, style: AppText.caption.copyWith(color: c.inkMuted)),
+            ],
+          ),
+        ),
+        for (final (i, b) in budgets.indexed) ...[
+          if (i > 0) const SizedBox(height: AppSpace.gap),
+          _BudgetCard(b, now: now),
+        ],
+      ],
+    );
+  }
+}
+
+class _BudgetCard extends StatelessWidget {
+  const _BudgetCard(this.b, {required this.now});
+
+  final _BudgetView b;
+  final DateTime now;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final limit = b.row['amount'] as int;
+    final period = b.row['period'] as String;
+    final level = budgetLevel(b.spent, limit);
+    final used = limit == 0 ? 0.0 : b.spent / limit;
+    final elapsed = periodElapsed(period, now);
+    final over = level == BudgetLevel.over;
+    // The fill carries severity, the track is a lighter step of it; the text says it in words.
+    final (fill, track) = switch (level) {
+      BudgetLevel.ok => (c.primary, c.primarySoft),
+      BudgetLevel.warning => (VizColors.warning, VizColors.warning.withValues(alpha: 0.22)),
+      BudgetLevel.over => (VizColors.critical, c.alertSoft),
+    };
+    final pace = used > elapsed ? 'lebih cepat dari jadwal' : 'sesuai jadwal';
+    final status = over
+        ? 'Lewat ${formatAmount(b.spent - limit)} dari batas ${formatAmount(limit)}'
+        : '${formatAmount(b.spent)} dari ${formatAmount(limit)} · '
+              '${level == BudgetLevel.warning ? 'hampir habis' : pace}';
+    return Material(
+      color: c.surface,
+      borderRadius: BorderRadius.circular(AppRadius.card),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        onLongPress: () => _confirmDelete(context),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpace.card),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Expanded(
+                    child: Text(
+                      b.row['name'] as String,
+                      style: AppText.bodyStrong,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (period != 'month')
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text(periodLabels[period]!, style: AppText.caption.copyWith(color: c.inkMuted)),
+                    ),
+                  Text(
+                    percentOf(b.spent, limit),
+                    style: AppText.label.copyWith(fontWeight: FontWeight.w600, color: over ? c.alert : c.ink),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Semantics(
+                label: '${percentOf(b.spent, limit)} terpakai, ${(elapsed * 100).round()}% periode berjalan',
+                excludeSemantics: true,
+                child: SizedBox(
+                  height: 20,
+                  child: LayoutBuilder(
+                    builder: (context, box) => Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        Container(
+                          height: 12,
+                          decoration: BoxDecoration(color: track, borderRadius: BorderRadius.circular(6)),
+                        ),
+                        Container(
+                          width: box.maxWidth * used.clamp(0.0, 1.0),
+                          height: 12,
+                          decoration: BoxDecoration(color: fill, borderRadius: BorderRadius.circular(6)),
+                        ),
+                        Positioned(
+                          left: (box.maxWidth * elapsed - 1).clamp(0.0, box.maxWidth - 2),
+                          top: 0,
+                          bottom: 0,
+                          child: Container(width: 2, color: c.ink),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  if (level != BudgetLevel.ok) ...[
+                    Icon(over ? Icons.error_outline : Icons.warning_amber_rounded, size: 13, color: over ? c.alert : c.ink),
+                    const SizedBox(width: 4),
+                  ],
+                  Expanded(
+                    child: Text(
+                      status,
+                      style: AppText.caption.copyWith(
+                        color: over ? c.alert : c.inkMuted,
+                        fontWeight: over ? FontWeight.w500 : null,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Hapus budget "${b.row['name']}"?'),
+        content: const Text('Transaksinya tidak ikut terhapus.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Hapus')),
+        ],
+      ),
+    );
+    if (ok == true) await db.execute('DELETE FROM budgets WHERE id = ?', [b.row['id']]);
+  }
+}
+
+class _NoBudgets extends StatelessWidget {
+  const _NoBudgets();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    Widget bar(double width) => FractionallySizedBox(
+      widthFactor: width,
+      alignment: Alignment.centerLeft,
+      child: Container(
+        height: 12,
+        decoration: BoxDecoration(color: c.surfaceMuted, borderRadius: BorderRadius.circular(6)),
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionTitle('Budget'),
+        _EmptyCard(
+          top: ExcludeSemantics(child: Column(children: [bar(1), const SizedBox(height: 8), bar(0.7)])),
+          title: 'Belum ada budget',
+          text: 'Belum tahu angkanya? Catat dulu sebulan, lalu pakai pengeluaran per kategori di Laporan sebagai patokan.',
+          action: OutlinedButton(onPressed: () => showBudgetForm(context), child: const Text('Buat budget')),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------- saving goals (A6)
+
+class _Goals extends StatelessWidget {
+  const _Goals(this.goals);
+
+  final List<Map<String, dynamic>> goals;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = [
+      for (var i = 0; i < goals.length; i += 2) goals.sublist(i, (i + 2).clamp(0, goals.length)),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionTitle('Goal tabungan'),
+        for (final (i, pair) in rows.indexed) ...[
+          if (i > 0) const SizedBox(height: AppSpace.gap),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: _GoalCard(pair.first)),
+                const SizedBox(width: AppSpace.gap),
+                Expanded(child: pair.length > 1 ? _GoalCard(pair.last) : const SizedBox()),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -199,97 +702,99 @@ class _GoalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
+    final c = AppColors.of(context);
     final saved = g['saved'] as int;
     final target = g['target_amount'] as int;
     final targetDate = g['target_date'] == null ? null : DateTime.parse(g['target_date'] as String);
     final plan = planGoal(saved: saved, target: target, targetDate: targetDate, now: DateTime.now());
     final paused = g['state'] == 'paused';
-    final accent = VizColors.of(context).bar;
-    final (fill, icon, iconColor, status) = plan.reached
-        ? (VizColors.success, Icons.check_circle_outline, VizColors.success, 'Tercapai')
+    final active = !paused && !plan.reached;
+    // Active goals sit on the soft green; paused ones go grey, so the eye lands on what is running.
+    final (bg, track, fill, muted) = active
+        ? (c.primarySoft, c.surface, c.primary, c.onPrimarySoft)
+        : (c.surface, c.surfaceMuted, paused ? c.outline : c.primary, c.inkMuted);
+    final compact = NumberFormat.compact(locale: 'id_ID');
+    final (statusIcon, status) = plan.reached
+        ? (Icons.check_circle_outline, 'Tercapai')
         : paused
-        ? (muted, Icons.pause_circle_outline, muted, 'Dijeda')
+        ? (Icons.pause_circle_outline, 'Dijeda')
         : plan.late
-        ? (accent, Icons.warning_amber_rounded, VizColors.warning, 'Lewat tanggal target')
-        : (
-            accent,
-            Icons.flag_outlined,
-            accent,
-            plan.perMonth != null
-                ? 'Nabung ${formatAmount(plan.perMonth!)}/bulan'
-                : 'Sisa ${formatAmount(plan.remaining)}',
-          );
-    final details = [
-      '${formatAmount(saved)} dari ${formatAmount(target)}',
-      if (targetDate != null) 'target ${DateFormat('d MMM yyyy', 'id_ID').format(targetDate)}',
-      // The account is worth naming only when it isn't the one created for this goal.
-      if (g['account_name'] != g['name']) 'di ${g['account_name'] ?? 'akun terhapus'}',
-    ].join(' · ');
-    return Card(
+        ? (Icons.warning_amber_rounded, 'Lewat tanggal target')
+        : targetDate != null
+        ? (null, 'Target ${DateFormat('MMM yyyy', 'id_ID').format(targetDate)}')
+        : (null, 'Sisa ${formatAmount(plan.remaining)}');
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(AppRadius.card),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.card),
         onLongPress: () => _options(context, paused),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+          padding: const EdgeInsets.all(AppSpace.card),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(child: Text(g['name'] as String, style: theme.textTheme.titleSmall)),
-                        Text(
-                          percentOf(saved.clamp(0, target), target),
-                          style: theme.textTheme.labelMedium?.copyWith(color: muted),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    _Meter(value: plan.progress, fill: fill, label: '${percentOf(saved, target)} terkumpul, $status'),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Icon(icon, size: 16, color: iconColor),
-                        const SizedBox(width: 4),
-                        Expanded(child: Text(status, style: theme.textTheme.labelMedium)),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(details, style: theme.textTheme.bodySmall?.copyWith(color: muted)),
-                  ],
+              Text(g['name'] as String, style: AppText.bodyStrong, maxLines: 2, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 12),
+              Text(percentOf(saved.clamp(0, target), target), style: AppText.title.copyWith(fontSize: 20)),
+              Text(
+                'Rp ${compact.format(saved / 100)} / ${compact.format(target / 100)}',
+                style: AppText.caption.copyWith(color: muted),
+              ),
+              const SizedBox(height: 12),
+              Semantics(
+                label: '${percentOf(saved, target)} terkumpul, $status',
+                excludeSemantics: true,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: plan.progress,
+                    minHeight: 8,
+                    backgroundColor: track,
+                    color: fill,
+                  ),
                 ),
               ),
-              if (!plan.reached && !paused && g['account_id'] != null)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.add),
-                    label: const Text('Tambah tabungan'),
-                    // A transfer into the goal's account keeps every balance right.
-                    onPressed: () => showRecordForm(
-                      context,
-                      prefill: Prefill(
-                        type: 'transfer',
-                        transferAccountId: g['account_id'] as String,
-                        note: 'Tabungan ${g['name']}',
-                      ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (statusIcon != null) ...[Icon(statusIcon, size: 13, color: muted), const SizedBox(width: 4)],
+                  Expanded(child: Text(status, style: AppText.caption.copyWith(color: muted))),
+                ],
+              ),
+              const Spacer(),
+              const SizedBox(height: 12),
+              if (active && g['account_id'] != null)
+                FilledButton(
+                  // A transfer into the goal's account keeps every balance right.
+                  onPressed: () => showRecordForm(
+                    context,
+                    prefill: Prefill(
+                      type: 'transfer',
+                      transferAccountId: g['account_id'] as String,
+                      note: 'Tabungan ${g['name']}',
                     ),
                   ),
+                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(40), textStyle: AppText.label),
+                  child: const Text('Tambah'),
                 )
-              else
-                const SizedBox(height: 8),
+              else if (paused)
+                OutlinedButton(
+                  onPressed: () => _setState(paused: false),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(40), textStyle: AppText.label),
+                  child: const Text('Lanjutkan'),
+                ),
             ],
           ),
         ),
       ),
     );
   }
+
+  Future<void> _setState({required bool paused}) => db.execute(
+    'UPDATE goals SET state = ?, updated_at = ? WHERE id = ?',
+    [paused ? 'paused' : 'active', nowIso(), g['id']],
+  );
 
   Future<void> _options(BuildContext context, bool paused) async {
     final choice = await showModalBottomSheet<String>(
@@ -314,14 +819,59 @@ class _GoalCard extends StatelessWidget {
       ),
     );
     if (choice == 'toggle') {
-      await db.execute('UPDATE goals SET state = ?, updated_at = ? WHERE id = ?', [
-        paused ? 'active' : 'paused',
-        nowIso(),
-        g['id'],
-      ]);
+      await _setState(paused: !paused);
     } else if (choice == 'delete') {
       await db.execute('DELETE FROM goals WHERE id = ?', [g['id']]);
     }
+  }
+}
+
+class _NoGoals extends StatelessWidget {
+  const _NoGoals();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionTitle('Goal tabungan'),
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+          decoration: BoxDecoration(color: c.primarySoft, borderRadius: BorderRadius.circular(AppRadius.card)),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(color: c.surface, shape: BoxShape.circle),
+                child: Icon(Icons.track_changes, color: c.primary),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Punya target?', style: AppText.bodyStrong),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Misalnya dana darurat atau HP baru',
+                      style: AppText.label.copyWith(color: c.onPrimarySoft, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () => showGoalForm(context),
+                style: FilledButton.styleFrom(minimumSize: const Size(64, 44), textStyle: AppText.label),
+                child: const Text('Buat goal'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -453,83 +1003,6 @@ class _GoalFormState extends State<GoalForm> {
         ),
       ),
     );
-  }
-}
-
-class _BudgetCard extends StatelessWidget {
-  const _BudgetCard(this.b);
-
-  final _BudgetView b;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    final limit = b.row['amount'] as int;
-    final level = budgetLevel(b.spent, limit);
-    // Meter: the fill carries severity, the track is a lighter step of the same color.
-    final (fill, icon, status) = switch (level) {
-      BudgetLevel.ok => (VizColors.of(context).bar, Icons.check_circle_outline, 'Aman'),
-      BudgetLevel.warning => (VizColors.warning, Icons.warning_amber_rounded, 'Hampir habis'),
-      BudgetLevel.over => (VizColors.critical, Icons.error_outline, 'Lewat batas'),
-    };
-    final daily = dailyAllowance(b.spent, limit, b.end, DateTime.now());
-    final remaining = level == BudgetLevel.over
-        ? 'Lebih ${formatAmount(b.spent - limit)}'
-        : 'Sisa ${formatAmount(limit - b.spent)}${daily != null ? ' · ${formatAmount(daily)}/hari' : ''}';
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onLongPress: () => _confirmDelete(context),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(child: Text(b.row['name'] as String, style: theme.textTheme.titleSmall)),
-                  Text(periodLabels[b.row['period']] ?? '', style: theme.textTheme.labelSmall?.copyWith(color: muted)),
-                ],
-              ),
-              const SizedBox(height: 10),
-              _Meter(
-                value: limit == 0 ? 0 : b.spent / limit,
-                fill: fill,
-                label: '${percentOf(b.spent, limit)} terpakai, $status',
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Icon(icon, size: 16, color: fill),
-                  const SizedBox(width: 4),
-                  Text(status, style: theme.textTheme.labelMedium),
-                  const Spacer(),
-                  Text('${formatAmount(b.spent)} dari ${formatAmount(limit)}', style: theme.textTheme.bodySmall),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text(remaining, style: theme.textTheme.bodySmall?.copyWith(color: muted)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _confirmDelete(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Hapus budget "${b.row['name']}"?'),
-        content: const Text('Transaksinya tidak ikut terhapus.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Hapus')),
-        ],
-      ),
-    );
-    if (ok == true) await db.execute('DELETE FROM budgets WHERE id = ?', [b.row['id']]);
   }
 }
 

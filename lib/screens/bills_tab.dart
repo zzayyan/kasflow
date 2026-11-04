@@ -58,125 +58,60 @@ Stream<int> watchDueBillCount() => db
           .length,
     );
 
-class BillsTab extends StatelessWidget {
-  const BillsTab({super.key});
+/// Opens the record form prefilled; saving records it and moves the bill to its next due date.
+void payBill(BuildContext context, Map<String, dynamic> b) => showRecordForm(
+  context,
+  prefill: Prefill(
+    amount: b['amount'] as int, // editable: bills like electricity vary month to month
+    type: b['type'] as String,
+    accountId: b['account_id'] as String,
+    categoryId: b['category_id'] as String?,
+    note: b['name'] as String,
+    source: 'planned',
+    plannedPaymentId: b['id'] as String,
+    nextDue: nextDueDate(b['rrule'] as String, _date(b['next_due_date'])),
+  ),
+);
 
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: db.watch('''
-        SELECT p.*, a.name AS account_name FROM planned_payments p
-        LEFT JOIN accounts a ON a.id = p.account_id
-        ORDER BY p.next_due_date, p.name'''),
-      builder: (context, snap) {
-        final rows = snap.data;
-        if (rows == null) return const Center(child: CircularProgressIndicator());
-        if (rows.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'Belum ada tagihan rutin. Tekan + untuk menambah, misalnya listrik, kos, cicilan, atau gaji.',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
-        }
-        return ListView.separated(
-          padding: const EdgeInsets.only(bottom: 88),
-          itemCount: rows.length,
-          separatorBuilder: (_, _) => const Divider(height: 1),
-          itemBuilder: (context, i) => _BillTile(rows[i]),
-        );
-      },
-    );
-  }
-}
-
-class _BillTile extends StatelessWidget {
-  const _BillTile(this.b);
-
-  final Map<String, dynamic> b;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final due = _date(b['next_due_date']);
-    final (days, level) = dueStatus(due, b['remind_days_before'] as int, DateTime.now());
-    // Status always pairs an icon and a label with its color.
-    final (icon, color) = switch (level) {
-      DueLevel.overdue => (Icons.error_outline, VizColors.critical),
-      DueLevel.soon => (Icons.schedule, VizColors.warning),
-      DueLevel.upcoming => (Icons.event, theme.colorScheme.onSurfaceVariant),
-    };
-    final income = b['type'] == 'income';
-    return ListTile(
-      leading: Icon(icon, color: color),
-      title: Text(b['name'] as String),
-      subtitle: Text(
-        '${dueLabel(days)} · ${DateFormat('d MMM yyyy', 'id_ID').format(due)}\n'
-        '${formatAmount(b['amount'] as int)} · ${b['account_name'] ?? '?'} · '
-        '${frequencyLabels[frequencyOf(b['rrule'] as String)]}',
+/// Skip this period or delete the bill.
+Future<void> billOptions(BuildContext context, Map<String, dynamic> b) async {
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.skip_next),
+            title: const Text('Lewati periode ini'),
+            subtitle: const Text('Tidak dicatat, jatuh tempo pindah ke periode berikutnya'),
+            onTap: () => Navigator.pop(context, 'skip'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Hapus tagihan'),
+            subtitle: const Text('Transaksi yang sudah tercatat tidak ikut terhapus'),
+            onTap: () => Navigator.pop(context, 'delete'),
+          ),
+        ],
       ),
-      isThreeLine: true,
-      trailing: FilledButton.tonal(onPressed: () => _pay(context), child: Text(income ? 'Terima' : 'Bayar')),
-      onLongPress: () => _options(context),
-    );
-  }
-
-  /// Opens the record form prefilled; saving records it and moves the bill to its next due date.
-  void _pay(BuildContext context) => showRecordForm(
-    context,
-    prefill: Prefill(
-      amount: b['amount'] as int, // editable: bills like electricity vary month to month
-      type: b['type'] as String,
-      accountId: b['account_id'] as String,
-      categoryId: b['category_id'] as String?,
-      note: b['name'] as String,
-      source: 'planned',
-      plannedPaymentId: b['id'] as String,
-      nextDue: nextDueDate(b['rrule'] as String, _date(b['next_due_date'])),
     ),
   );
-
-  Future<void> _options(BuildContext context) async {
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.skip_next),
-              title: const Text('Lewati periode ini'),
-              subtitle: const Text('Tidak dicatat, jatuh tempo pindah ke periode berikutnya'),
-              onTap: () => Navigator.pop(context, 'skip'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Hapus tagihan'),
-              subtitle: const Text('Transaksi yang sudah tercatat tidak ikut terhapus'),
-              onTap: () => Navigator.pop(context, 'delete'),
-            ),
-          ],
-        ),
-      ),
-    );
-    final id = b['id'];
-    if (choice == 'skip') {
-      final next = nextDueDate(b['rrule'] as String, _date(b['next_due_date']));
-      await db.execute('UPDATE planned_payments SET next_due_date = ?, updated_at = ? WHERE id = ?', [
-        dateOnly(next),
-        nowIso(),
-        id,
-      ]);
-    } else if (choice == 'delete') {
-      await db.execute('DELETE FROM planned_payments WHERE id = ?', [id]);
-    }
+  final id = b['id'];
+  if (choice == 'skip') {
+    final next = nextDueDate(b['rrule'] as String, _date(b['next_due_date']));
+    await db.execute('UPDATE planned_payments SET next_due_date = ?, updated_at = ? WHERE id = ?', [
+      dateOnly(next),
+      nowIso(),
+      id,
+    ]);
+  } else if (choice == 'delete') {
+    await db.execute('DELETE FROM planned_payments WHERE id = ?', [id]);
   }
 }
 
-Future<void> showBillForm(BuildContext context) async {
+/// [name] and [type] start the form from a suggestion chip ("Kos", "Gaji").
+Future<void> showBillForm(BuildContext context, {String? name, String type = 'expense'}) async {
   final accounts = await db.getAll('SELECT id, name, currency FROM accounts WHERE archived = 0 ORDER BY name');
   final categories = await db.getAll(
     'SELECT id, name, type, keywords FROM categories WHERE archived = 0 ORDER BY name',
@@ -186,26 +121,28 @@ Future<void> showBillForm(BuildContext context) async {
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    builder: (_) => BillForm(accounts: accounts, categories: categories),
+    builder: (_) => BillForm(accounts: accounts, categories: categories, name: name, type: type),
   );
 }
 
 class BillForm extends StatefulWidget {
-  const BillForm({super.key, required this.accounts, required this.categories});
+  const BillForm({super.key, required this.accounts, required this.categories, this.name, this.type = 'expense'});
 
   final List<Map<String, dynamic>> accounts;
   final List<Map<String, dynamic>> categories;
+  final String? name;
+  final String type;
 
   @override
   State<BillForm> createState() => _BillFormState();
 }
 
 class _BillFormState extends State<BillForm> {
-  final _name = TextEditingController();
+  late final _name = TextEditingController(text: widget.name);
   final _amount = TextEditingController();
-  String _type = 'expense';
+  late String _type = widget.type;
   late String _accountId = widget.accounts.first['id'] as String;
-  String? _categoryId;
+  late String? _categoryId = guessCategoryId(widget.name ?? '', _type, widget.categories);
   bool _categoryPicked = false;
   String _frequency = 'MONTHLY';
   DateTime _firstDue = DateTime.now();

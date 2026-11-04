@@ -48,7 +48,7 @@ class _RecordsTabState extends State<RecordsTab> {
         builder: (context, snap) {
           final rows = snap.data?.where((r) => _type == null || r['type'] == _type).toList();
           return ListView(
-            padding: const EdgeInsets.fromLTRB(AppSpace.page, 16, AppSpace.page, 96), // clear of the + button
+            padding: const EdgeInsets.fromLTRB(AppSpace.page, 16, AppSpace.page, 24),
             children: [
               ConstrainedBox(
                 constraints: const BoxConstraints(minHeight: 46),
