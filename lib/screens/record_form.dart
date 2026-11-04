@@ -8,7 +8,6 @@ import '../quick_input.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'labels_page.dart';
-import 'records_tab.dart';
 
 /// Returns true when the record was deleted.
 Future<bool> confirmDeleteRecord(BuildContext context, String id) async {
@@ -98,7 +97,7 @@ Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
   // Most used first, so the quick chips under the form hold the likely picks.
   final categories = await db.getAll(
     '''
-    SELECT c.id, c.name, c.type, c.keywords FROM categories c
+    SELECT c.id, c.name, c.type, c.keywords, c.icon FROM categories c
     WHERE c.archived = 0 OR c.id = ?
     ORDER BY (SELECT COUNT(*) FROM records r WHERE r.category_id = c.id) DESC, c.name''',
     [prefill?.categoryId],
@@ -347,22 +346,7 @@ class _RecordFormState extends State<RecordForm> {
       ...categories.skip(6).where((x) => x['id'] == _categoryId),
     ];
     return Scaffold(
-      appBar: AppBar(
-        leadingWidth: 66,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: AppSpace.page),
-          child: Center(
-            child: IconButton(
-              tooltip: 'Kembali',
-              onPressed: () => Navigator.pop(context),
-              style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
-              icon: Icon(Icons.chevron_left, color: c.ink),
-            ),
-          ),
-        ),
-        centerTitle: true,
-        title: Text(_editing ? 'Ubah transaksi' : 'Catat transaksi', style: AppText.title.copyWith(fontSize: 20)),
-      ),
+      appBar: pageAppBar(context, _editing ? 'Ubah transaksi' : 'Catat transaksi'),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(AppSpace.page, 8, AppSpace.page, 20),
         children: [
@@ -467,7 +451,11 @@ class _RecordFormState extends State<RecordForm> {
                 if (!transfer) ...[
                   const Divider(indent: 16, endIndent: 16),
                   _Row(
-                    icon: categoryIcon(category, _type),
+                    icon: categoryIcon(
+                      category,
+                      _type,
+                      widget.categories.where((x) => x['id'] == _categoryId).firstOrNull?['icon'] as String?,
+                    ),
                     strong: true,
                     label: 'Kategori',
                     value: category ?? 'Pilih kategori',

@@ -95,6 +95,7 @@ Future<String> saveCategory({
   required String type,
   required String? needLevel,
   required List<String> keywords,
+  String? icon, // a key of categoryIcons (lib/ui.dart); null = guessed from the name
 }) {
   return db.writeTransaction((tx) async {
     final now = nowIso();
@@ -102,14 +103,15 @@ Future<String> saveCategory({
     if (id == null) {
       await tx.execute(
         '''
-        INSERT INTO categories (id, user_id, name, type, need_level, keywords, archived, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, '[]', 0, ?, ?)''',
-        [categoryId, currentUserId, name, type, needLevel, now, now],
+        INSERT INTO categories (id, user_id, name, type, need_level, icon, keywords, archived, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, '[]', 0, ?, ?)''',
+        [categoryId, currentUserId, name, type, needLevel, icon, now, now],
       );
     } else {
-      await tx.execute('UPDATE categories SET name = ?, need_level = ?, updated_at = ? WHERE id = ?', [
+      await tx.execute('UPDATE categories SET name = ?, need_level = ?, icon = ?, updated_at = ? WHERE id = ?', [
         name,
         needLevel,
+        icon,
         now,
         id,
       ]);

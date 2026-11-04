@@ -27,7 +27,7 @@ class RecordsTab extends StatefulWidget {
 class _RecordsTabState extends State<RecordsTab> {
   // ponytail: newest 500 only; add paging when a user has more history than that.
   final _records = db.watch('''
-    SELECT r.*, a.name AS account_name, t.name AS target_name, c.name AS category_name,
+    SELECT r.*, a.name AS account_name, t.name AS target_name, c.name AS category_name, c.icon AS category_icon,
       (SELECT group_concat('#' || l.name, ' ') FROM json_each(r.label_ids) j JOIN labels l ON l.id = j.value)
         AS label_names
     FROM records r
@@ -192,38 +192,12 @@ class _DayGroup extends StatelessWidget {
 
 // ---------------------------------------------------------------- one record
 
-// Icons for the default categories (supabase/migrations/0001_init.sql), matched on the name so
-// renamed or new categories still get one when the word fits. First match wins.
-const _categoryIcons = [
-  ('makan', Icons.restaurant_outlined),
-  ('belanja online', Icons.shopping_bag_outlined),
-  ('belanja', Icons.shopping_cart_outlined),
-  ('transport', Icons.directions_car_outlined),
-  ('tagihan', Icons.bolt_outlined),
-  ('tinggal', Icons.home_outlined),
-  ('kesehatan', Icons.medical_services_outlined),
-  ('hiburan', Icons.movie_outlined),
-  ('pendidikan', Icons.school_outlined),
-  ('sedekah', Icons.volunteer_activism_outlined),
-  ('hadiah', Icons.card_giftcard_outlined),
-  ('gaji', Icons.payments_outlined),
-];
-
-IconData categoryIcon(String? categoryName, String type) {
-  if (type == 'transfer') return Icons.swap_horiz;
-  final name = (categoryName ?? '').toLowerCase();
-  for (final (word, icon) in _categoryIcons) {
-    if (name.contains(word)) return icon;
-  }
-  return type == 'income' ? Icons.account_balance_wallet_outlined : Icons.receipt_outlined;
-}
-
 /// One record in a list: what it was, its category, the amount and [detail] (a day or a time).
 /// Tap edits it, long press deletes it.
 class RecordRow extends StatelessWidget {
   const RecordRow(this.r, {super.key, required this.detail, this.withAccount = false});
 
-  final Map<String, dynamic> r; // a records row joined with account_name, target_name, category_name
+  final Map<String, dynamic> r; // a records row joined with account_name, target_name, category_name/_icon
   final String detail;
   final bool withAccount; // always name the account (and labels), not only when nothing else fits
 
@@ -259,7 +233,7 @@ class RecordRow extends StatelessWidget {
               width: 44,
               height: 44,
               decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-              child: Icon(categoryIcon(r['category_name'] as String?, type), size: 20, color: fg),
+              child: Icon(categoryIcon(r['category_name'] as String?, type, r['category_icon'] as String?), size: 20, color: fg),
             ),
             const SizedBox(width: AppSpace.gap),
             Expanded(

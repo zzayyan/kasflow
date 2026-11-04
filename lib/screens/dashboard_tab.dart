@@ -76,7 +76,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
     super.initState();
     _subs.addAll([
       _watch('''
-        SELECT r.*, a.name AS account_name, t.name AS target_name, c.name AS category_name
+        SELECT r.*, a.name AS account_name, t.name AS target_name, c.name AS category_name, c.icon AS category_icon
         FROM records r
         LEFT JOIN accounts a ON a.id = r.account_id
         LEFT JOIN accounts t ON t.id = r.transfer_account_id

@@ -134,22 +134,7 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
     final synced = _pending == 0;
     String time((int, int) t) => '${t.$1.toString().padLeft(2, '0')}.${t.$2.toString().padLeft(2, '0')}';
     return Scaffold(
-      appBar: AppBar(
-        leadingWidth: 66,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: AppSpace.page),
-          child: Center(
-            child: IconButton(
-              tooltip: 'Kembali',
-              onPressed: () => Navigator.pop(context),
-              style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
-              icon: Icon(Icons.chevron_left, color: c.ink),
-            ),
-          ),
-        ),
-        centerTitle: true,
-        title: Text('Pengaturan', style: AppText.title.copyWith(fontSize: 20)),
-      ),
+      appBar: pageAppBar(context, 'Pengaturan'),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(AppSpace.page, 8, AppSpace.page, 28),
         children: [

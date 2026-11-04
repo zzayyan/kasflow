@@ -38,6 +38,109 @@ void showDone(BuildContext context, String title, String detail, {required VoidC
   );
 }
 
+/// A pushed page's header, as drawn: round back button, centered title, optional [action].
+PreferredSizeWidget pageAppBar(BuildContext context, String title, {Widget? action}) {
+  final c = AppColors.of(context);
+  return AppBar(
+    leadingWidth: 66,
+    leading: Padding(
+      padding: const EdgeInsets.only(left: AppSpace.page),
+      child: Center(
+        child: IconButton(
+          tooltip: 'Kembali',
+          onPressed: () => Navigator.maybePop(context),
+          style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
+          icon: Icon(Icons.chevron_left, color: c.ink),
+        ),
+      ),
+    ),
+    centerTitle: true,
+    title: Text(title, style: AppText.title.copyWith(fontSize: 20)),
+    actions: [
+      if (action != null) Padding(padding: const EdgeInsets.only(right: AppSpace.page), child: Center(child: action)),
+    ],
+  );
+}
+
+/// The dark round + that adds an item, in a page header.
+class AddButton extends StatelessWidget {
+  const AddButton({super.key, required this.tooltip, required this.onPressed});
+
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(backgroundColor: c.primary, fixedSize: const Size.square(46)),
+      icon: Icon(Icons.add, color: c.onPrimary),
+    );
+  }
+}
+
+/// Icons a category can wear, in the picker's order; `categories.icon` holds the key.
+const categoryIcons = <String, (IconData, String)>{
+  'utensils': (Icons.restaurant_outlined, 'Makan'),
+  'coffee': (Icons.local_cafe_outlined, 'Kopi'),
+  'basket': (Icons.shopping_basket_outlined, 'Belanja harian'),
+  'bike': (Icons.two_wheeler, 'Motor'),
+  'car': (Icons.directions_car_outlined, 'Mobil'),
+  'zap': (Icons.bolt_outlined, 'Listrik'),
+  'home': (Icons.home_outlined, 'Rumah'),
+  'heart': (Icons.monitor_heart_outlined, 'Kesehatan'),
+  'film': (Icons.movie_outlined, 'Hiburan'),
+  'bag': (Icons.shopping_bag_outlined, 'Belanja'),
+  'book': (Icons.menu_book_outlined, 'Pendidikan'),
+  'gift': (Icons.card_giftcard_outlined, 'Hadiah'),
+  'wallet': (Icons.account_balance_wallet_outlined, 'Dompet'),
+  'plane': (Icons.flight_outlined, 'Liburan'),
+  'phone': (Icons.smartphone_outlined, 'Pulsa'),
+  'shirt': (Icons.checkroom_outlined, 'Pakaian'),
+  'dumbbell': (Icons.fitness_center_outlined, 'Olahraga'),
+  'more': (Icons.more_horiz, 'Lainnya'),
+};
+
+// For categories without a chosen icon: the default ones (supabase/migrations/0001_init.sql)
+// and renamed or new ones whose name has the word. First match wins.
+const _iconByName = [
+  ('makan', 'utensils'),
+  ('kopi', 'coffee'),
+  ('belanja online', 'bag'),
+  ('belanja', 'basket'),
+  ('transport', 'bike'),
+  ('tagihan', 'zap'),
+  ('tinggal', 'home'),
+  ('kesehatan', 'heart'),
+  ('hiburan', 'film'),
+  ('pendidikan', 'book'),
+  ('sedekah', 'gift'),
+  ('hadiah', 'gift'),
+  ('gaji', 'wallet'),
+  ('liburan', 'plane'),
+  ('pulsa', 'phone'),
+  ('lainnya', 'more'),
+];
+
+/// The icon key a category shows: its own, else one guessed from its name.
+String? categoryIconKey(String? name, [String? icon]) {
+  if (categoryIcons.containsKey(icon)) return icon;
+  final n = (name ?? '').toLowerCase();
+  for (final (word, key) in _iconByName) {
+    if (n.contains(word)) return key;
+  }
+  return null;
+}
+
+IconData categoryIcon(String? name, String type, [String? icon]) {
+  if (type == 'transfer') return Icons.swap_horiz;
+  final key = categoryIconKey(name, icon);
+  if (key != null) return categoryIcons[key]!.$1;
+  return type == 'income' ? Icons.south_west : Icons.receipt_outlined;
+}
+
 /// One choice out of a few, as one pill track (Keluar / Masuk / Transfer).
 class PillSwitch<T> extends StatelessWidget {
   const PillSwitch({super.key, required this.options, required this.value, required this.onChanged, this.fontSize = 15});

@@ -19,7 +19,10 @@ const _allLabels = ''; // menu value for "every label" (a null value would read 
 final _compact = NumberFormat.compact(locale: 'id_ID');
 
 class ReportTab extends StatefulWidget {
-  const ReportTab({super.key});
+  const ReportTab({super.key, this.labelId});
+
+  /// Start filtered to this label, e.g. opened from Kelola label.
+  final String? labelId;
 
   @override
   State<ReportTab> createState() => _ReportTabState();
@@ -49,7 +52,7 @@ class _ReportTabState extends State<ReportTab> {
 
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   String _view = 'expense'; // 'expense' | 'income' | 'budget'
-  String? _labelId; // null = all records; otherwise only records with this label, e.g. a trip
+  late String? _labelId = widget.labelId; // null = all records; else only records with this label
 
   MonthReport? _report;
   List<Map<String, dynamic>> _trendRows = const [];
@@ -172,6 +175,16 @@ class _ReportTabState extends State<ReportTab> {
         children: [
           Row(
             children: [
+              // Pushed on its own (from Kelola label) it needs a way back; as a tab it has none.
+              if (ModalRoute.of(context)?.canPop ?? false) ...[
+                IconButton(
+                  tooltip: 'Kembali',
+                  onPressed: () => Navigator.pop(context),
+                  style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
+                  icon: Icon(Icons.chevron_left, color: c.ink),
+                ),
+                const SizedBox(width: 10),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
