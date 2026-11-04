@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:powersync/powersync.dart' show SyncStatus;
 
 import '../db.dart';
 import '../money.dart';
@@ -19,7 +20,6 @@ import 'settings_page.dart';
 // Beranda, after the "E · Beranda" and "Kosong · Beranda" artboards of the Cashflow UI/UX canvas.
 // Until the first record exists it shows a getting-started checklist instead of the latest records.
 
-const _syncedDot = Color(0xFF3F9A62); // the avatar's "all synced" dot in the design
 final _digits = NumberFormat.decimalPattern('id_ID');
 final _compact = NumberFormat.compact(locale: 'id_ID');
 
@@ -147,8 +147,6 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                       context,
                       MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
                     ),
-                    inboxCount: inboxCount,
-                    onInbox: () => widget.onOpenTab(1),
                   ),
                   gap,
                   _BalanceCard(
@@ -190,12 +188,10 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
 // ---------------------------------------------------------------- header
 
 class _Header extends StatelessWidget {
-  const _Header({required this.isNew, required this.onAvatar, required this.inboxCount, required this.onInbox});
+  const _Header({required this.isNew, required this.onAvatar});
 
   final bool isNew;
   final VoidCallback onAvatar; // opens Pengaturan
-  final int inboxCount;
-  final VoidCallback onInbox;
 
   static String _greeting(int hour) => switch (hour) {
     >= 4 && < 10 => 'Selamat pagi',
@@ -211,56 +207,11 @@ class _Header extends StatelessWidget {
     final now = DateTime.now();
     return Row(
       children: [
-        StreamBuilder(
-          stream: db.statusStream,
-          initialData: db.currentStatus, // the stream only reports changes
-          builder: (context, snap) {
-            final s = snap.data;
-            final online = s?.connected ?? false;
-            final status = !online
-                ? 'offline, data aman di HP'
-                : (s!.uploading || s.downloading)
-                ? 'menyinkronkan'
-                : 'semua data tersinkron';
-            return InkWell(
-              onTap: onAvatar,
-              customBorder: const CircleBorder(),
-              child: Semantics(
-                button: true,
-                label: 'Pengaturan, $status',
-                excludeSemantics: true,
-                onTap: onAvatar, // excludeSemantics drops the InkWell's own action
-                child: SizedBox.square(
-                  dimension: 46,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(color: c.hero, shape: BoxShape.circle),
-                          child: Center(
-                            child: Text(name[0], style: AppText.heading.copyWith(fontSize: 18, color: c.onHero)),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: online ? _syncedDot : c.outline,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: c.bg, width: 2.5, strokeAlign: BorderSide.strokeAlignOutside),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
+        IconButton(
+          tooltip: 'Pengaturan',
+          onPressed: onAvatar,
+          style: IconButton.styleFrom(backgroundColor: c.hero, fixedSize: const Size.square(46)),
+          icon: Text(name[0], style: AppText.heading.copyWith(fontSize: 18, color: c.onHero)),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -281,20 +232,109 @@ class _Header extends StatelessWidget {
             ],
           ),
         ),
-        if (!isNew)
-          IconButton(
-            tooltip: inboxCount == 0
-                ? 'Transaksi dari notifikasi'
-                : '$inboxCount transaksi dari notifikasi perlu dicek',
-            onPressed: onInbox,
-            style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
-            icon: Badge(
-              isLabelVisible: inboxCount > 0,
-              backgroundColor: c.alert,
-              child: Icon(Icons.notifications_none, size: 20, color: c.ink),
-            ),
-          ),
+        const _SyncButton(),
       ],
+    );
+  }
+}
+
+/// Where this phone's data stands with the server, as an icon that follows the sync state: a cloud
+/// with a check when everything is up, turning arrows while syncing, a crossed-out cloud offline.
+/// Changes waiting to upload show as a count. Tap for the state in words.
+class _SyncButton extends StatefulWidget {
+  const _SyncButton();
+
+  @override
+  State<_SyncButton> createState() => _SyncButtonState();
+}
+
+class _SyncButtonState extends State<_SyncButton> with SingleTickerProviderStateMixin {
+  late final _spin = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100));
+  late final StreamSubscription<SyncStatus> _sub;
+  SyncStatus _status = db.currentStatus;
+  int _pending = 0; // changes on this phone not uploaded yet
+
+  bool get _busy => _status.connected && (_status.uploading || _status.downloading);
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = db.statusStream.listen((s) {
+      if (!mounted) return;
+      setState(() => _status = s);
+      _animate();
+      unawaited(_refreshPending());
+    });
+    _animate();
+    unawaited(_refreshPending());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub.cancel());
+    _spin.dispose();
+    super.dispose();
+  }
+
+  void _animate() => _busy ? _spin.repeat() : _spin.stop();
+
+  Future<void> _refreshPending() async {
+    final n = (await db.getUploadQueueStats()).count;
+    if (mounted && n != _pending) setState(() => _pending = n);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final waiting = _pending == 1 ? '1 perubahan menunggu' : '$_pending perubahan menunggu';
+    final last = _status.lastSyncedAt?.toLocal();
+    final (key, icon, color, label) = _busy
+        ? ('busy', Icons.sync, c.primary, 'Menyinkronkan')
+        : !_status.connected
+        ? (
+            'offline',
+            Icons.cloud_off_outlined,
+            c.inkMuted,
+            _pending > 0 ? 'Offline, $waiting. Datanya aman di HP ini.' : 'Offline. Datanya aman di HP ini.',
+          )
+        : _pending > 0
+        ? ('waiting', Icons.cloud_upload_outlined, c.ink, 'Tersambung, $waiting')
+        : (
+            'done',
+            Icons.cloud_done_outlined,
+            c.primary,
+            last == null ? 'Semua data tersinkron' : 'Semua data tersinkron · ${DateFormat('HH.mm').format(last)}',
+          );
+    Widget glyph = Icon(icon, size: 22, color: color);
+    if (key == 'busy') {
+      glyph = RotationTransition(turns: _spin, child: glyph); // clockwise, the way the arrows point
+    }
+    return IconButton(
+      tooltip: label,
+      onPressed: () {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(label),
+              action: key == 'offline' || key == 'waiting'
+                  ? SnackBarAction(label: 'Coba lagi', onPressed: () => unawaited(reconnect()))
+                  : null,
+            ),
+          );
+      },
+      style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
+      icon: Badge(
+        isLabelVisible: _pending > 0 && !_busy,
+        backgroundColor: c.alert,
+        textColor: c.onAlert,
+        label: Text(_pending > 99 ? '99+' : '$_pending'),
+        // A short cross-fade, so quick status flips read as one change instead of a flicker.
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          child: KeyedSubtree(key: ValueKey(key), child: glyph),
+        ),
+      ),
     );
   }
 }
