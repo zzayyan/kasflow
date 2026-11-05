@@ -56,7 +56,14 @@ String redact(String text, Iterable<String> names) {
   return out;
 }
 
-typedef ReadNotification = ({int amount, String? type, String? title, String text});
+// "Rp16.050", "Rp 50000", "IDR 25,000", or a grouped number like "1.500.000".
+final _amountPattern = RegExp(r'(?:\bRp|\bIDR)\.?\s?\d|\d[.,]\d{3}\b', caseSensitive: false);
+
+/// Whether [text] names a rupiah amount. Every transaction does, so texts without one (order
+/// updates, chats, "Diskon 50%" promos) are dropped on the phone and never use the Gemini quota.
+bool mentionsAmount(String text) => _amountPattern.hasMatch(text);
+
+typedef ReadNotification =({int amount, String? type, String? title, String text});
 
 /// Checks Gemini's [answer] against the [original] notification. Null when it is not a transaction.
 /// When the amount cannot be found in the original, the type stays empty, so saving the item
@@ -87,12 +94,23 @@ int? _parseNotificationAmount(String raw) {
   return parseAmount(english ? raw.replaceAll(',', '').replaceAll('.', ',') : raw);
 }
 
+Future<File> _inboxFile() async =>
+    File(join((await getApplicationSupportDirectory()).path, 'notification_inbox.jsonl'));
+
+/// Whether the listener has written notifications that are not imported yet. Cheap enough to poll.
+Future<bool> notificationsWaiting() async => (await _inboxFile()).exists();
+
 /// Moves captured notifications from the listener's file into the inbox queue, then has
 /// Gemini read the queue. Returns how many items became ready for review.
-Future<int> importNotifications() async {
-  final dir = await getApplicationSupportDirectory();
-  final inbox = File(join(dir.path, 'notification_inbox.jsonl'));
+// One import at a time: a resume and the poll landing together must not both rename the file.
+Future<int> importNotifications() => _importing ??= _import().whenComplete(() => _importing = null);
+
+Future<int>? _importing;
+
+Future<int> _import() async {
+  final inbox = await _inboxFile();
   if (await inbox.exists()) {
+    final dir = inbox.parent;
     // Rename first: the listener keeps appending to a fresh file while we read this one.
     final batch = await inbox.rename(
       join(dir.path, 'notification_inbox.${DateTime.now().microsecondsSinceEpoch}.jsonl'),
@@ -106,6 +124,7 @@ Future<int> importNotifications() async {
         continue; // half-written line from a crash; nothing to recover
       }
       final text = n['text'] as String;
+      if (!mentionsAmount('${n['title']}\n$text')) continue;
       final number = bankReference(text);
       final ref = number == null ? n['ref'] as String : 'ref|$number';
       final seen = await db.getOptional(
@@ -127,15 +146,16 @@ Future<int> importNotifications() async {
     }
     await batch.delete();
   }
-  return _reading ??= _readQueue().whenComplete(() => _reading = null);
+  return _readQueue();
 }
-
-Future<int>? _reading; // one reader at a time, so two app resumes never read an item twice
 
 // ponytail: 10 a run stays under the free tier's 15 requests a minute; the rest wait for the
 // next app open. Batch several notifications per request if queues grow past that.
+// Newest first: the payment just made shows up at once instead of waiting behind older items.
 Future<int> _readQueue() async {
-  final queued = await db.getAll('SELECT id, title, text FROM inbox WHERE amount IS NULL ORDER BY posted_at LIMIT 10');
+  final queued = await db.getAll(
+    'SELECT id, title, text FROM inbox WHERE amount IS NULL ORDER BY posted_at DESC LIMIT 10',
+  );
   if (queued.isEmpty) return 0;
   final meta = supabase.auth.currentUser?.userMetadata;
   final names = '${meta?['name'] ?? meta?['full_name'] ?? ''}'.split(RegExp(r'\s+')).where((w) => w.length >= 3);

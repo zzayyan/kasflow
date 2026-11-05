@@ -50,6 +50,25 @@ void main() {
     expect(bankReference('Kamu membayar Rp25.000 ke Warung Bakso'), null);
   });
 
+  test('mentionsAmount lets transactions through and stops texts with no rupiah amount', () {
+    for (final text in [
+      briQris,
+      'Pembayaran sebesar Rp16.050 berhasil',
+      'Top up Rp 50000 berhasil',
+      'Transfer IDR 25,000.00 received',
+      'Kamu menerima 1.500.000 dari Budi',
+    ]) {
+      expect(mentionsAmount(text), isTrue, reason: text);
+    }
+    for (final text in [
+      'Selamat menikmati!\nPastikan pesananmu sudah sesuai. Jika menemukan masalah beritahu kami secepatnya, ya 🧡',
+      'Flash Sale jam 20:00! Diskon 50% semua produk',
+      'Pesananmu sedang dikirim',
+    ]) {
+      expect(mentionsAmount(text), isFalse, reason: text);
+    }
+  });
+
   group('checkAnswer', () {
     const answer = {
       'is_transaction': true,

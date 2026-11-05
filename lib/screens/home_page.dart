@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../notifications.dart';
 import '../theme.dart';
 import 'bills_tab.dart';
 import 'dashboard_tab.dart';
@@ -21,15 +22,22 @@ class _HomePageState extends State<HomePage> {
   int _tab = 0;
   late final StreamSubscription<void> _reminders;
   final _dueBills = watchDueBillCount();
+  late final Timer _notificationPoll;
 
   @override
   void initState() {
     super.initState();
     _reminders = keepRemindersScheduled();
+    // Tabs import on resume; this catches a notification that arrives while the app stays open.
+    _notificationPoll = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+      if (await notificationsWaiting()) await importNotifications();
+    });
   }
 
   @override
   void dispose() {
+    _notificationPoll.cancel();
     _reminders.cancel();
     super.dispose();
   }
