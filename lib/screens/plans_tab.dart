@@ -45,8 +45,10 @@ BudgetView? mainBudget(List<BudgetView> budgets, {String? pickedId}) {
 // Spending counts confirmed expenses in the budget's current period, on accounts that count
 // towards statistics, limited to the budget's categories, accounts and labels (empty list = all;
 // a record matches a label filter when it carries any of those labels).
-const _spentSql = '''
-  SELECT COALESCE(SUM(r.amount), 0) AS spent
+const _spentSql = 'SELECT COALESCE(SUM(r.amount), 0) AS spent $_budgetRecordsSql';
+
+// The records a budget counts; ?1..?5 are period start, end, category, account and label ids.
+const _budgetRecordsSql = '''
   FROM records r JOIN accounts a ON a.id = r.account_id
   WHERE r.type = 'expense' AND r.status = 'confirmed' AND a.exclude_from_stats = 0
     AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?2)
@@ -555,7 +557,8 @@ class _BudgetCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(AppRadius.card),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.card),
-        onLongPress: () => _confirmDelete(context),
+        onTap: () => _options(context),
+        onLongPress: () => _options(context),
         child: Padding(
           padding: const EdgeInsets.all(AppSpace.card),
           child: Column(
@@ -634,6 +637,126 @@ class _BudgetCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Change it, see what it counted, make it Beranda's daily allowance, or delete it.
+  Future<void> _options(BuildContext context) async {
+    final home = await getPref('home_budget') == b.row['id'];
+    if (!context.mounted) return;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Text(b.row['name'] as String, style: AppText.heading),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Ubah budget'),
+              subtitle: const Text('Batas, periode, kategori, dan label'),
+              onTap: () => Navigator.pop(context, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.receipt_long_outlined),
+              title: const Text('Lihat transaksi'),
+              subtitle: const Text('Yang terhitung di periode ini'),
+              onTap: () => Navigator.pop(context, 'records'),
+            ),
+            if (!home)
+              ListTile(
+                leading: const Icon(Icons.verified_user_outlined),
+                title: const Text('Jadikan jatah harian di Beranda'),
+                onTap: () => Navigator.pop(context, 'home'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Hapus budget'),
+              subtitle: const Text('Transaksinya tidak ikut terhapus'),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    switch (choice) {
+      case 'edit':
+        await showBudgetForm(context, budget: b.row);
+      case 'records':
+        await _showRecords(context);
+      case 'home':
+        await setPref('home_budget', b.row['id'] as String);
+        if (context.mounted) showMessage(context, 'Jatah hari ini di Beranda sekarang mengikuti ${b.row['name']}.');
+      case 'delete':
+        await _confirmDelete(context);
+    }
+  }
+
+  /// The expenses this budget counts in its current period, newest first.
+  Future<void> _showRecords(BuildContext context) async {
+    final (start, end) = periodRange(b.row['period'] as String, now);
+    final rows = await db.getAll(
+      '''
+      SELECT r.amount, r.note, r.occurred_at, a.name AS account,
+        (SELECT name FROM categories WHERE id = r.category_id) AS category
+      $_budgetRecordsSql
+      ORDER BY julianday(r.occurred_at) DESC''',
+      [utcIso(start), utcIso(end), b.row['category_ids'] ?? '[]', b.row['account_ids'] ?? '[]', b.row['label_ids'] ?? '[]'],
+    );
+    if (!context.mounted) return;
+    final c = AppColors.of(context);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.7,
+        maxChildSize: 0.95,
+        builder: (context, scroll) => ListView(
+          controller: scroll,
+          padding: const EdgeInsets.only(bottom: 24),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
+              child: Text(b.row['name'] as String, style: AppText.heading),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Text(
+                '${rows.length} transaksi · ${formatAmount(b.spent)} dari ${formatAmount(b.row['amount'] as int)}',
+                style: AppText.label.copyWith(color: c.inkMuted),
+              ),
+            ),
+            if (rows.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('Belum ada pengeluaran di periode ini.', style: AppText.body.copyWith(color: c.inkMuted)),
+              ),
+            for (final r in rows)
+              ListTile(
+                title: Text(
+                  (r['note'] as String?)?.isNotEmpty == true ? r['note'] as String : r['category'] as String? ?? '-',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                // The category already titles a record without a note; don't repeat it.
+                subtitle: Text(
+                  [
+                    if ((r['note'] as String?)?.isNotEmpty == true) ?(r['category'] as String?),
+                    r['account'] as String,
+                    DateFormat('d MMM', 'id_ID').format(DateTime.parse(r['occurred_at'] as String).toLocal()),
+                  ].join(' · '),
+                ),
+                trailing: Text(formatAmount(r['amount'] as int), style: AppText.bodyStrong),
+              ),
+          ],
         ),
       ),
     );
@@ -1029,7 +1152,8 @@ class _GoalFormState extends State<GoalForm> {
   }
 }
 
-Future<void> showBudgetForm(BuildContext context) async {
+/// A new budget, or with [budget] (its row) that budget to change.
+Future<void> showBudgetForm(BuildContext context, {Map<String, dynamic>? budget}) async {
   final categories = await db.getAll(
     "SELECT id, name FROM categories WHERE type = 'expense' AND archived = 0 ORDER BY name",
   );
@@ -1038,15 +1162,16 @@ Future<void> showBudgetForm(BuildContext context) async {
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    builder: (_) => BudgetForm(categories: categories, labels: labels),
+    builder: (_) => BudgetForm(categories: categories, labels: labels, budget: budget),
   );
 }
 
 class BudgetForm extends StatefulWidget {
-  const BudgetForm({super.key, required this.categories, required this.labels});
+  const BudgetForm({super.key, required this.categories, required this.labels, this.budget});
 
   final List<Map<String, dynamic>> categories;
   final List<Map<String, dynamic>> labels;
+  final Map<String, dynamic>? budget; // the budget being changed; null for a new one
 
   @override
   State<BudgetForm> createState() => _BudgetFormState();
@@ -1058,6 +1183,26 @@ class _BudgetFormState extends State<BudgetForm> {
   String _period = 'month';
   final _selected = <String>{};
   var _labelIds = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.budget case final b?) {
+      Set<String> ids(Object? raw) => raw is String && raw.isNotEmpty ? {...(jsonDecode(raw) as List).cast<String>()} : {};
+      _name.text = b['name'] as String;
+      _amount.text = NumberFormat.decimalPattern('id_ID').format((b['amount'] as int) / 100);
+      _period = periodLabels.containsKey(b['period']) ? b['period'] as String : 'month';
+      _selected.addAll(ids(b['category_ids']));
+      _labelIds = ids(b['label_ids']);
+    }
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _amount.dispose();
+    super.dispose();
+  }
 
   Future<void> _save() async {
     final amount = parseAmount(_amount.text);
@@ -1073,6 +1218,16 @@ class _BudgetFormState extends State<BudgetForm> {
         : names.join(', ');
     final (start, _) = periodRange(_period, DateTime.now());
     final now = nowIso();
+    if (widget.budget case final b?) {
+      await db.execute(
+        '''
+        UPDATE budgets SET name = ?, period = ?, amount = ?, category_ids = ?, label_ids = ?, updated_at = ?
+        WHERE id = ?''',
+        [name, _period, amount, jsonEncode([..._selected]), jsonEncode([..._labelIds]), now, b['id']],
+      );
+      if (mounted) Navigator.pop(context);
+      return;
+    }
     await db.execute(
       '''
       INSERT INTO budgets (id, user_id, name, period, amount, currency, start_date,

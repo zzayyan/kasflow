@@ -114,13 +114,17 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
       _watch('SELECT provider, COUNT(*) AS n FROM inbox WHERE amount IS NOT NULL GROUP BY provider', (rows) => _inbox = rows),
       _watch('SELECT COUNT(*) AS n FROM planned_payments', (rows) => _bills = rows.first['n'] as int),
       watchBudgets().listen((rows) => _set(() => _budgets = rows)),
+      // Watched, not read once: Rencana can also make a budget the one Beranda follows.
+      _watch(
+        "SELECT value FROM prefs WHERE id = 'home_budget'",
+        (rows) => _pickedBudgetId = rows.firstOrNull?['value'] as String?,
+      ),
     ]);
     _watchMonth();
     _watchWeek();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_importInbox());
     unawaited(getPref('hide_balance').then((v) => v == '1' ? _set(() => _hidden = true) : null));
-    unawaited(getPref('home_budget').then((v) => _set(() => _pickedBudgetId = v)));
   }
 
   /// Which budget "Jatah hari ini" follows. With none yet, Rencana is where one is made.
