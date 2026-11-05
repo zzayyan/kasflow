@@ -103,6 +103,33 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
     _set(() => _reminder = (picked.hour, picked.minute));
   }
 
+  static const _themeNames = {ThemeMode.light: 'Terang', ThemeMode.dark: 'Gelap', ThemeMode.system: 'Ikuti sistem'};
+
+  Future<void> _pickTheme() async {
+    final picked = await showModalBottomSheet<ThemeMode>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final MapEntry(key: mode, value: name) in _themeNames.entries)
+              ListTile(
+                title: Text(name),
+                subtitle: mode == ThemeMode.system ? const Text('Terang atau gelap mengikuti pengaturan HP') : null,
+                selected: mode == themeMode.value,
+                trailing: mode == themeMode.value ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, mode),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    // setState too: Ikuti sistem on a light phone changes no color, so nothing else rebuilds this row.
+    _set(() => themeMode.value = picked);
+    await setPref('theme', picked.name);
+  }
+
   Future<void> _logout() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -204,6 +231,12 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
           ]),
           const SizedBox(height: AppSpace.section),
           _Group('Tampilan dan pengingat', [
+            _Item(
+              Icons.contrast,
+              'Tema',
+              trailing: Text(_themeNames[themeMode.value]!, style: AppText.label.copyWith(color: c.inkMuted)),
+              onTap: _pickTheme,
+            ),
             MergeSemantics(
               child: _Item(
                 Icons.visibility_outlined,

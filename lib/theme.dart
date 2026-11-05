@@ -273,6 +273,11 @@ abstract final class AppText {
   static const button = TextStyle(fontFamily: family, fontSize: 16, fontWeight: FontWeight.w600);
 }
 
+/// Light unless the user picks Gelap or Ikuti sistem in Pengaturan (this phone's pref 'theme').
+final themeMode = ValueNotifier(ThemeMode.light);
+
+ThemeMode themeModeFromPref(String? value) => ThemeMode.values.asNameMap()[value] ?? ThemeMode.light;
+
 ThemeData buildAppTheme(Brightness brightness) {
   final c = brightness == Brightness.dark ? AppColors.dark : AppColors.light;
   final lightMode = brightness == Brightness.light;

@@ -19,6 +19,7 @@ Future<void> main() async {
   }
   await initializeDateFormatting('id_ID');
   await openDatabase();
+  themeMode.value = themeModeFromPref(await getPref('theme'));
   runApp(const App());
 }
 
@@ -27,13 +28,17 @@ class App extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Cashflow',
-      theme: buildAppTheme(Brightness.light),
-      darkTheme: buildAppTheme(Brightness.dark),
-      home: StreamBuilder<AuthState>(
-        stream: supabase.auth.onAuthStateChange,
-        builder: (context, _) => supabase.auth.currentSession == null ? const WelcomePage() : const HomePage(),
+    return ValueListenableBuilder(
+      valueListenable: themeMode,
+      builder: (context, mode, _) => MaterialApp(
+        title: 'Cashflow',
+        theme: buildAppTheme(Brightness.light),
+        darkTheme: buildAppTheme(Brightness.dark),
+        themeMode: mode,
+        home: StreamBuilder<AuthState>(
+          stream: supabase.auth.onAuthStateChange,
+          builder: (context, _) => supabase.auth.currentSession == null ? const WelcomePage() : const HomePage(),
+        ),
       ),
     );
   }
