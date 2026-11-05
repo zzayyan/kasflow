@@ -9,17 +9,14 @@ void showMessage(BuildContext context, String text) =>
 
 /// "Tersimpan" with what was saved and a way back (Geser + snackbar artboard).
 void showDone(BuildContext context, String title, String detail, {required VoidCallback onUndo}) {
-  final c = AppColors.of(context);
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
+      // Flutter keeps a bar with an action up until it is dismissed; _UndoCountdown closes this one
+      // when its ring runs out.
+      persist: true,
       content: Row(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(color: c.heroChip, shape: BoxShape.circle),
-            child: Icon(Icons.check, size: 18, color: c.onHeroChip),
-          ),
+          const _UndoCountdown(),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -36,6 +33,69 @@ void showDone(BuildContext context, String title, String detail, {required VoidC
       action: SnackBarAction(label: 'Batalkan', onPressed: onUndo),
     ),
   );
+}
+
+const undoTime = Duration(seconds: 4);
+
+/// The check in a "Tersimpan" bar, ringed by the time left to undo; at zero it closes the bar.
+/// With a screen reader on, the bar waits for the user instead and shows no ring.
+class _UndoCountdown extends StatefulWidget {
+  const _UndoCountdown();
+
+  @override
+  State<_UndoCountdown> createState() => _UndoCountdownState();
+}
+
+class _UndoCountdownState extends State<_UndoCountdown> with SingleTickerProviderStateMixin {
+  late final _left = AnimationController(vsync: this, duration: undoTime, value: 1);
+  bool _timed = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_timed || MediaQuery.accessibleNavigationOf(context)) return;
+    _timed = true;
+    // The ring starts when the bar appears, and the bar closes when the ring ends: one clock for both.
+    _left.reverse().whenComplete(() {
+      if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar(reason: SnackBarClosedReason.timeout);
+    });
+  }
+
+  @override
+  void dispose() {
+    _left.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return SizedBox.square(
+      dimension: 36,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(color: c.heroChip, shape: BoxShape.circle),
+            child: const SizedBox.expand(),
+          ),
+          if (_timed)
+            ExcludeSemantics(
+              child: AnimatedBuilder(
+                animation: _left,
+                builder: (context, _) => CircularProgressIndicator(
+                  value: _left.value,
+                  strokeWidth: 2.5,
+                  color: c.onHeroChip,
+                  backgroundColor: Colors.transparent,
+                ),
+              ),
+            ),
+          Icon(Icons.check, size: 18, color: c.onHeroChip),
+        ],
+      ),
+    );
+  }
 }
 
 /// A pushed page's header, as drawn: round back button, centered title, optional [action].
