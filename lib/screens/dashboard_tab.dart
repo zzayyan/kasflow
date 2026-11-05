@@ -13,6 +13,7 @@ import '../theme.dart';
 import '../ui.dart';
 import 'accounts_tab.dart';
 import 'bills_tab.dart';
+import 'plans_tab.dart';
 import 'record_form.dart';
 import 'records_tab.dart';
 import 'settings_page.dart';
@@ -46,6 +47,9 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
   Map<String, dynamic>? _accounts; // `n`, `total`
   List<Map<String, dynamic>> _inbox = const []; // `provider`, `n`
   int _bills = 0;
+  List<BudgetView> _budgets = const [];
+  String? _pickedBudgetId; // chosen by tapping "Jatah hari ini" (pref 'home_budget')
+  BudgetView? get _budget => mainBudget(_budgets, pickedId: _pickedBudgetId);
   int? _net;
 
   StreamSubscription<void> _watch(String sql, void Function(List<Map<String, dynamic>> rows) onRows, [
@@ -109,12 +113,48 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
         WHERE a.archived = 0''', (rows) => _accounts = rows.first),
       _watch('SELECT provider, COUNT(*) AS n FROM inbox WHERE amount IS NOT NULL GROUP BY provider', (rows) => _inbox = rows),
       _watch('SELECT COUNT(*) AS n FROM planned_payments', (rows) => _bills = rows.first['n'] as int),
+      watchBudgets().listen((rows) => _set(() => _budgets = rows)),
     ]);
     _watchMonth();
     _watchWeek();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_importInbox());
     unawaited(getPref('hide_balance').then((v) => v == '1' ? _set(() => _hidden = true) : null));
+    unawaited(getPref('home_budget').then((v) => _set(() => _pickedBudgetId = v)));
+  }
+
+  /// Which budget "Jatah hari ini" follows. With none yet, Rencana is where one is made.
+  Future<void> _pickBudget() async {
+    if (_budgets.isEmpty) return widget.onOpenTab(2);
+    final current = _budget?.row['id'];
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Text('Jatah harian dari budget', style: AppText.heading),
+            ),
+            for (final b in _budgets)
+              ListTile(
+                title: Text(b.row['name'] as String),
+                subtitle: Text(
+                  '${periodLabels[b.row['period']] ?? 'Custom'} · ${formatAmount(b.row['amount'] as int)}',
+                ),
+                selected: b.row['id'] == current,
+                trailing: b.row['id'] == current ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, b.row['id'] as String),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    _set(() => _pickedBudgetId = picked);
+    await setPref('home_budget', picked);
   }
 
   void _set(VoidCallback change) {
@@ -179,6 +219,9 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                     hidden: _hidden,
                     onToggleHidden: isNew ? null : () => setState(() => _hidden = !_hidden),
                     onReport: isNew ? null : () => widget.onOpenTab(3),
+                    allowance: isNew
+                        ? null
+                        : _AllowancePanel(budget: _budget, hidden: _hidden, onTap: _pickBudget),
                   ),
                   gap,
                   if (isNew) ...[
@@ -379,8 +422,10 @@ class _BalanceCard extends StatelessWidget {
     required this.hidden,
     required this.onToggleHidden,
     required this.onReport,
+    this.allowance,
   });
 
+  final Widget? allowance; // "Jatah hari ini" at the bottom of the card
   final int total;
   final int? net; // income minus expense this month; null hides the chip
   final String caption;
@@ -496,7 +541,93 @@ class _BalanceCard extends StatelessWidget {
               style: AppText.caption.copyWith(color: c.onHeroMuted),
             ),
           ],
+          if (allowance case final a?) ...[const SizedBox(height: 14), a],
         ],
+      ),
+    );
+  }
+}
+
+/// "Jatah hari ini": what the main budget still allows per day for the rest of its period, so a
+/// thrifty day raises tomorrow's figure and a costly one lowers it. Without a budget it invites
+/// setting one; once the budget is spent it turns to the alert color. Tapping it picks the budget.
+class _AllowancePanel extends StatelessWidget {
+  const _AllowancePanel({required this.budget, required this.hidden, required this.onTap});
+
+  final BudgetView? budget;
+  final bool hidden;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final b = budget;
+    final now = DateTime.now();
+    final limit = b?.row['amount'] as int? ?? 0;
+    final (_, end) = periodRange(b?.row['period'] as String? ?? 'month', now);
+    final perDay = b == null ? null : dailyAllowance(b.spent, limit, end, now);
+    final over = b != null && perDay == null;
+    final daysLeft = DateTime(end.year, end.month, end.day).difference(DateTime(now.year, now.month, now.day)).inDays;
+    String money(int cents) => hidden ? 'Rp •••' : formatAmount(cents);
+
+    final (IconData icon, String title, String detail) = switch (b) {
+      null => (Icons.savings_outlined, 'Atur budget untuk melihat jatah harian', 'Buka Rencana'),
+      _ when over => (
+        Icons.warning_amber_rounded,
+        'Budget ${b.row['name']} habis',
+        b.spent > limit ? 'Terlewat ${money(b.spent - limit)}' : 'Tidak ada sisa sampai periode berikutnya',
+      ),
+      _ => (
+        Icons.verified_user_outlined,
+        'Jatah hari ini · ${b.row['name']}',
+        'sisa ${hidden ? 'Rp •••' : formatCompact(limit - b.spent)} · $daysLeft hari lagi',
+      ),
+    };
+    final fg = over ? c.alert : c.onHero;
+    return Material(
+      color: over ? c.alertSoft : c.heroChip,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(color: over ? c.surface : c.hero, shape: BoxShape.circle),
+                child: Icon(icon, size: 18, color: over ? c.alert : c.onHeroChip),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.caption.copyWith(color: over ? c.alert : c.onHeroChip, fontWeight: FontWeight.w500),
+                    ),
+                    Text(
+                      detail,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.caption.copyWith(fontSize: 11, color: over ? c.alert : c.onHeroMuted),
+                    ),
+                  ],
+                ),
+              ),
+              if (perDay != null) ...[
+                const SizedBox(width: 8),
+                Text(money(perDay), style: AppText.amount.copyWith(fontSize: 20, color: fg)),
+              ] else if (b == null)
+                Icon(Icons.chevron_right, size: 20, color: c.onHeroChip),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -27,6 +27,20 @@ class BudgetView {
   final int spent;
 }
 
+/// The budget Beranda's "Jatah hari ini" follows: the one the user picked ([pickedId], this phone's
+/// 'home_budget' pref) while it exists; otherwise a monthly one before a weekly one before the rest,
+/// and among those the largest, i.e. the everyday living budget rather than a small side budget.
+BudgetView? mainBudget(List<BudgetView> budgets, {String? pickedId}) {
+  if (budgets.where((b) => b.row['id'] == pickedId).firstOrNull case final picked?) return picked;
+  int rank(BudgetView b) => const {'month': 0, 'week': 1}[b.row['period']] ?? 2;
+  final sorted = [...budgets]
+    ..sort((a, b) {
+      final byPeriod = rank(a).compareTo(rank(b));
+      return byPeriod != 0 ? byPeriod : (b.row['amount'] as int).compareTo(a.row['amount'] as int);
+    });
+  return sorted.firstOrNull;
+}
+
 // Spending counts confirmed expenses in the budget's current period, on accounts that count
 // towards statistics, limited to the budget's categories, accounts and labels (empty list = all;
 // a record matches a label filter when it carries any of those labels).
