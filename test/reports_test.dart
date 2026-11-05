@@ -53,6 +53,19 @@ void main() {
     expect(monthTotals(rows, DateTime(2027, 1), 3, 'income'), [900, 0, 0]); // across the year
   });
 
+  test('dayTotals buckets by local date, oldest first', () {
+    String at(int y, int m, int d, [int h = 12]) => DateTime(y, m, d, h).toUtc().toIso8601String();
+    final rows = [
+      {'type': 'expense', 'amount': 100, 'occurred_at': at(2026, 11, 4, 23)},
+      {'type': 'expense', 'amount': 50, 'occurred_at': at(2026, 11, 4, 0)},
+      {'type': 'expense', 'amount': 30, 'occurred_at': at(2026, 10, 31)}, // across the month
+      {'type': 'income', 'amount': 900, 'occurred_at': at(2026, 11, 3)},
+      {'type': 'expense', 'amount': 5, 'occurred_at': at(2026, 10, 28)}, // outside the window
+    ];
+    expect(dayTotals(rows, DateTime(2026, 11, 4, 15), 7, 'expense'), [0, 0, 30, 0, 0, 0, 150]);
+    expect(dayTotals(rows, DateTime(2026, 11, 4), 2, 'income'), [900, 0]);
+  });
+
   test('niceTicks steps by 1, 2 or 5 and covers the max', () {
     expect(niceTicks(5800000), [0, 2000000, 4000000, 6000000]);
     expect(niceTicks(379000000), [0, 200000000, 400000000, 600000000]);

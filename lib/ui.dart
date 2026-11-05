@@ -184,6 +184,167 @@ class PillSwitch<T> extends StatelessWidget {
   }
 }
 
+/// Columns of one series on one baseline (Laporan's trend, Beranda's week). The selected column
+/// is dark and carries its value; the others are muted; tapping one selects it. [ticks] adds an
+/// axis on the right; without it the tallest column fills the height.
+class SelectableBars extends StatelessWidget {
+  const SelectableBars({
+    super.key,
+    required this.values,
+    required this.labels,
+    required this.readouts,
+    required this.selected,
+    required this.onSelect,
+    required this.valueText,
+    this.ticks,
+    this.tickText,
+    this.height = 150,
+  });
+
+  final List<int> values;
+  final List<String> labels; // under each column
+  final List<String> readouts; // what a screen reader says for each column
+  final int selected;
+  final ValueChanged<int> onSelect;
+  final String Function(int value) valueText; // the chip above the selected column
+  final List<int>? ticks;
+  final String Function(int tick)? tickText;
+  final double height;
+
+  static const _axisWidth = 30.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final top = ticks?.last ?? values.fold<int>(0, (m, v) => v > m ? v : m);
+    final scale = top == 0 ? 0.0 : height / top;
+    final last = values.length - 1;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // The selected value sits in a band above the plot, over its column, so it never covers a
+        // taller neighbour. Align keeps it inside the band at the edges.
+        Padding(
+          padding: EdgeInsets.only(right: ticks == null ? 0 : _axisWidth),
+          child: SizedBox(
+            height: 28,
+            child: Align(
+              alignment: Alignment(values.length < 2 ? 0 : -1 + 2 * selected / last, -1),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: c.primary, borderRadius: BorderRadius.circular(8)),
+                child: Text(
+                  valueText(values[selected]),
+                  maxLines: 1,
+                  softWrap: false,
+                  style: AppText.caption.copyWith(fontSize: 11, fontWeight: FontWeight.w600, color: c.onPrimary),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Container(
+                height: height,
+                decoration: BoxDecoration(border: Border(bottom: BorderSide(color: c.outline))),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (var i = 0; i < values.length; i++)
+                      Expanded(
+                        child: Semantics(
+                          button: true,
+                          selected: i == selected,
+                          label: readouts[i],
+                          excludeSemantics: true,
+                          onTap: () => onSelect(i), // excludeSemantics drops the InkWell's own action
+                          child: InkWell(
+                            onTap: () => onSelect(i),
+                            child: _Column(
+                              plot: height,
+                              height: values[i] * scale,
+                              color: i == selected ? c.primary : c.chartMuted,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            if (ticks case final ticks?) ...[
+              const SizedBox(width: 8),
+              SizedBox(
+                width: _axisWidth - 8,
+                height: height,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    for (final t in ticks.reversed)
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          tickText?.call(t) ?? '$t',
+                          style: AppText.caption.copyWith(fontSize: 10, color: c.inkMuted),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (var i = 0; i < labels.length; i++)
+              Expanded(
+                child: Text(
+                  labels[i],
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.fade,
+                  softWrap: false,
+                  style: AppText.caption.copyWith(
+                    color: i == selected ? c.ink : c.inkMuted,
+                    fontWeight: i == selected ? FontWeight.w600 : null,
+                  ),
+                ),
+              ),
+            if (ticks != null) const SizedBox(width: _axisWidth),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// One column: at most 24px wide, 4px rounded at the top, square at the baseline.
+class _Column extends StatelessWidget {
+  const _Column({required this.plot, required this.height, required this.color});
+
+  final double plot;
+  final double height;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: plot,
+    child: Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        width: 24,
+        height: height < 2 ? 2 : height, // an empty day still shows where it sits
+        decoration: BoxDecoration(color: color, borderRadius: const BorderRadius.vertical(top: Radius.circular(4))),
+      ),
+    ),
+  );
+}
+
 /// Chart and status colors. Bars, need levels and the "good" delta come from the design
 /// tokens in theme.dart (AppColors), so they follow light and dark mode. Need-level colors are
 /// close in hue, so every colored part is listed with its name and amount beside it.

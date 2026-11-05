@@ -630,7 +630,6 @@ class _Trend extends StatelessWidget {
     final c = AppColors.of(context);
     const plot = 150.0;
     final ticks = niceTicks(totals.fold<int>(0, math.max));
-    final top = ticks.last == 0 ? 1 : ticks.last;
     final months = [for (var i = 0; i < totals.length; i++) DateTime(end.year, end.month - (totals.length - 1 - i))];
     final now = DateTime.now();
     final running = selected.year == now.year && selected.month == now.month;
@@ -647,70 +646,18 @@ class _Trend extends StatelessWidget {
     return _Card(
       children: [
         Text(title, style: AppText.heading.copyWith(fontSize: 16)),
-        const SizedBox(height: 28), // room for the value chip above the tallest bar
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Container(
-                height: plot,
-                decoration: BoxDecoration(border: Border(bottom: BorderSide(color: c.outline))),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    for (final (i, m) in months.indexed)
-                      Expanded(
-                        child: Semantics(
-                          button: true,
-                          selected: m == selected,
-                          label: '${DateFormat('MMMM yyyy', 'id_ID').format(m)}: ${formatAmount(totals[i])}',
-                          excludeSemantics: true,
-                          onTap: () => onSelect(m), // excludeSemantics drops the InkWell's own action
-                          child: InkWell(
-                            onTap: () => onSelect(m),
-                            child: _Bar(
-                              height: plot * totals[i] / top,
-                              color: m == selected ? c.primary : c.chartMuted,
-                              chip: m == selected ? 'Rp ${_compact.format(totals[i] / 100)}' : null,
-                              chipAtEnd: i == months.length - 1, // keeps it clear of the axis labels
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              height: plot,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  for (final t in ticks.reversed)
-                    Text(t == 0 ? '0' : _compact.format(t / 100), style: AppText.caption.copyWith(fontSize: 10, color: c.inkMuted)),
-                ],
-              ),
-            ),
+        SelectableBars(
+          values: totals,
+          labels: [for (final m in months) DateFormat('MMM', 'id_ID').format(m)],
+          readouts: [
+            for (final (i, m) in months.indexed) '${DateFormat('MMMM yyyy', 'id_ID').format(m)}: ${formatAmount(totals[i])}',
           ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            for (final m in months)
-              Expanded(
-                child: Text(
-                  DateFormat('MMM', 'id_ID').format(m),
-                  textAlign: TextAlign.center,
-                  style: AppText.caption.copyWith(
-                    color: m == selected ? c.ink : c.inkMuted,
-                    fontWeight: m == selected ? FontWeight.w600 : null,
-                  ),
-                ),
-              ),
-            const SizedBox(width: 30), // under the axis labels
-          ],
+          selected: months.indexOf(selected),
+          onSelect: (i) => onSelect(months[i]),
+          valueText: (v) => 'Rp ${_compact.format(v / 100)}',
+          ticks: ticks,
+          tickText: (t) => t == 0 ? '0' : _compact.format(t / 100),
+          height: plot,
         ),
         if (running) ...[
           const SizedBox(height: 12),
@@ -720,50 +667,6 @@ class _Trend extends StatelessWidget {
           ),
         ],
       ],
-    );
-  }
-}
-
-/// One column: a bar at most 24px wide, 4px rounded at the top, square at the baseline.
-class _Bar extends StatelessWidget {
-  const _Bar({required this.height, required this.color, this.chip, this.chipAtEnd = false});
-
-  final double height;
-  final Color color;
-  final String? chip; // value shown above the chosen bar
-  final bool chipAtEnd; // right-align the chip to the column instead of centering it
-
-  @override
-  Widget build(BuildContext context) {
-    final c = AppColors.of(context);
-    return SizedBox(
-      height: 150,
-      child: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.bottomCenter,
-        children: [
-          Container(
-            width: 24,
-            height: math.max(height, 2), // a zero month still shows where it sits
-            decoration: BoxDecoration(color: color, borderRadius: const BorderRadius.vertical(top: Radius.circular(4))),
-          ),
-          if (chip != null)
-            Positioned(
-              bottom: math.max(height, 2) + 8,
-              right: chipAtEnd ? 0 : null,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: c.primary, borderRadius: BorderRadius.circular(8)),
-                child: Text(
-                  chip!,
-                  maxLines: 1,
-                  softWrap: false,
-                  style: AppText.caption.copyWith(fontSize: 11, fontWeight: FontWeight.w600, color: c.onPrimary),
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 }

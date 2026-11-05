@@ -93,7 +93,7 @@ class AppColors extends ThemeExtension<AppColors> {
     },
     chart: [Color(0xFF2A78D6), Color(0xFFEB6834), Color(0xFF1BAF7A), Color(0xFFEDA100), Color(0xFFE87BA4)],
     chartOther: Color(0xFFC9CCC4),
-    chartMuted: Color(0xFFC3D6C6),
+    chartMuted: Color(0xFF6F9A7B), // 3:1 against surface, and against the selected bar
   );
 
   static const dark = AppColors(
@@ -125,7 +125,7 @@ class AppColors extends ThemeExtension<AppColors> {
     },
     chart: [Color(0xFF3987E5), Color(0xFFD95926), Color(0xFF199E70), Color(0xFFC98500), Color(0xFFD55181)],
     chartOther: Color(0xFF4A524C),
-    chartMuted: Color(0xFF2E4A3A),
+    chartMuted: Color(0xFF48745B), // 3:1 against surface; the selected bar also carries its value
   );
 
   static AppColors of(BuildContext context) => Theme.of(context).extension<AppColors>() ?? light;

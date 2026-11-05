@@ -38,6 +38,10 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
   // be listened to once only, and sections here come and go (new user, inbox), so no StreamBuilder.
   final _subs = <StreamSubscription<void>>[];
   StreamSubscription<void>? _monthSub;
+  StreamSubscription<void>? _weekSub;
+  List<Map<String, dynamic>> _weekRows = const []; // expenses of the last 14 days
+  late DateTime _today;
+  int _weekDay = 6; // the selected column of the week chart; 6 = today
   List<Map<String, dynamic>>? _recent;
   Map<String, dynamic>? _accounts; // `n`, `total`
   List<Map<String, dynamic>> _inbox = const []; // `provider`, `n`
@@ -62,6 +66,23 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
   late DateTime _month;
   bool _hidden = false; // starts from Pengaturan's 'Sembunyikan saldo saat dibuka'
   bool _notifications = false;
+
+  // Fourteen days: this week's seven and the seven before, to compare with.
+  void _watchWeek() {
+    final now = DateTime.now();
+    _today = DateTime(now.year, now.month, now.day);
+    _weekDay = 6;
+    unawaited(_weekSub?.cancel());
+    _weekSub = _watch(
+      '''
+      SELECT r.type, r.amount, r.occurred_at
+      FROM records r JOIN accounts a ON a.id = r.account_id
+      WHERE r.type = 'expense' AND r.status = 'confirmed' AND a.exclude_from_stats = 0
+        AND julianday(r.occurred_at) >= julianday(?1)''',
+      (rows) => _weekRows = rows,
+      [utcIso(DateTime(_today.year, _today.month, _today.day - 13))],
+    );
+  }
 
   void _watchMonth() {
     final now = DateTime.now();
@@ -90,6 +111,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
       _watch('SELECT COUNT(*) AS n FROM planned_payments', (rows) => _bills = rows.first['n'] as int),
     ]);
     _watchMonth();
+    _watchWeek();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_importInbox());
     unawaited(getPref('hide_balance').then((v) => v == '1' ? _set(() => _hidden = true) : null));
@@ -102,7 +124,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    for (final s in [..._subs, ?_monthSub]) {
+    for (final s in [..._subs, ?_monthSub, ?_weekSub]) {
       unawaited(s.cancel());
     }
     super.dispose();
@@ -116,6 +138,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
     unawaited(_importInbox());
     final now = DateTime.now();
     if (now.year != _month.year || now.month != _month.month) setState(_watchMonth);
+    if (DateTime(now.year, now.month, now.day) != _today) setState(_watchWeek); // past midnight
   }
 
   Future<void> _importInbox() async {
@@ -176,6 +199,13 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                       _InboxCard(count: inboxCount, rows: _inbox, onTap: () => widget.onOpenTab(1)),
                       gap,
                     ],
+                    _WeekSpending(
+                      totals: dayTotals(_weekRows, _today, 14, 'expense'),
+                      today: _today,
+                      selected: _weekDay,
+                      onSelect: (i) => setState(() => _weekDay = i),
+                    ),
+                    gap,
                     _RecentRecords(records: recent, onSeeAll: () => widget.onOpenTab(1)),
                   ],
                 ],
@@ -645,6 +675,80 @@ class _RecentRecords extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------- the last seven days
+
+/// Spending per day for the last week: the total, how it compares with the week before (an arrow
+/// and words, not color alone), and one column per day. Tapping a column shows that day.
+class _WeekSpending extends StatelessWidget {
+  const _WeekSpending({required this.totals, required this.today, required this.selected, required this.onSelect});
+
+  final List<int> totals; // 14 days, oldest first, ending today
+  final DateTime today;
+  final int selected; // 0-6 within the last seven
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final week = totals.sublist(7);
+    final before = totals.take(7).fold<int>(0, (sum, v) => sum + v);
+    final total = week.fold<int>(0, (sum, v) => sum + v);
+    final days = [for (var i = 0; i < 7; i++) DateTime(today.year, today.month, today.day - 6 + i)];
+    final change = percentChange(total, before);
+    final (IconData? icon, String? text, Color color) = switch (change) {
+      null => (null, null, c.inkMuted),
+      final p when p.round() == 0 => (Icons.remove, 'Sama dengan 7 hari sebelumnya', c.inkMuted),
+      final p when p < 0 => (Icons.arrow_downward, '${p.abs().round()}% lebih hemat dari 7 hari sebelumnya', c.income),
+      final p => (Icons.arrow_upward, '${p.round()}% lebih banyak dari 7 hari sebelumnya', c.alert),
+    };
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(AppRadius.hero)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Pengeluaran 7 hari terakhir', style: AppText.heading.copyWith(fontSize: 16)),
+          const SizedBox(height: 6),
+          Text(formatAmount(total), style: AppText.amount.copyWith(fontSize: 22)),
+          if (text != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(icon, size: 14, color: color),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: AppText.caption.copyWith(color: color, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (total == 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text('Belum ada pengeluaran 7 hari terakhir.', style: AppText.label.copyWith(color: c.inkMuted)),
+            )
+          else
+            SelectableBars(
+              values: week,
+              labels: [for (final d in days) d == today ? 'Hari ini' : DateFormat('E', 'id_ID').format(d)],
+              readouts: [
+                for (final (i, d) in days.indexed)
+                  '${DateFormat('EEEE, d MMMM', 'id_ID').format(d)}: ${formatAmount(week[i])}',
+              ],
+              selected: selected,
+              onSelect: onSelect,
+              valueText: (v) => v == 0 ? 'Rp 0' : 'Rp ${NumberFormat.compact(locale: 'id_ID').format(v / 100)}',
+              height: 110,
+            ),
+        ],
+      ),
     );
   }
 }

@@ -112,6 +112,20 @@ List<int> monthTotals(List<Map<String, dynamic>> rows, DateTime lastMonth, int c
   return totals;
 }
 
+/// Totals of [type] for the [count] days ending with [lastDay], oldest first, by local date.
+List<int> dayTotals(List<Map<String, dynamic>> rows, DateTime lastDay, int count, String type) {
+  final last = DateTime(lastDay.year, lastDay.month, lastDay.day);
+  final totals = List.filled(count, 0);
+  for (final r in rows) {
+    if (r['type'] != type) continue;
+    final t = DateTime.parse(r['occurred_at'] as String).toLocal();
+    // Calendar days, not 24-hour blocks: a DST day is 23 or 25 hours long.
+    final back = DateTime.utc(last.year, last.month, last.day).difference(DateTime.utc(t.year, t.month, t.day)).inDays;
+    if (back >= 0 && back < count) totals[count - 1 - back] += r['amount'] as int;
+  }
+  return totals;
+}
+
 /// Axis ticks from 0 in steps of 1, 2 or 5 x 10^n, [count] steps up to at least [max].
 List<int> niceTicks(int max, {int count = 3}) {
   if (max <= 0) return [0];
