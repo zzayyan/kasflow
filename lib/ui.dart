@@ -258,6 +258,8 @@ class SelectableBars extends StatelessWidget {
     required this.valueText,
     this.ticks,
     this.tickText,
+    this.average,
+    this.averageText,
     this.height = 150,
   });
 
@@ -269,6 +271,8 @@ class SelectableBars extends StatelessWidget {
   final String Function(int value) valueText; // the chip above the selected column
   final List<int>? ticks;
   final String Function(int tick)? tickText;
+  final int? average; // a dashed line across the columns, labelled [averageText]
+  final String? averageText;
   final double height;
 
   static const _axisWidth = 30.0;
@@ -309,25 +313,53 @@ class SelectableBars extends StatelessWidget {
             Expanded(
               child: Container(
                 height: height,
-                decoration: BoxDecoration(border: Border(bottom: BorderSide(color: c.outline))),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: c.outline)),
+                ),
+                child: Stack(
                   children: [
-                    for (var i = 0; i < values.length; i++)
-                      Expanded(
-                        child: Semantics(
-                          button: true,
-                          selected: i == selected,
-                          label: readouts[i],
-                          excludeSemantics: true,
-                          onTap: () => onSelect(i), // excludeSemantics drops the InkWell's own action
-                          child: InkWell(
-                            onTap: () => onSelect(i),
-                            child: _Column(
-                              plot: height,
-                              height: values[i] * scale,
-                              color: i == selected ? c.primary : c.chartMuted,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        for (var i = 0; i < values.length; i++)
+                          Expanded(
+                            child: Semantics(
+                              button: true,
+                              selected: i == selected,
+                              label: readouts[i],
+                              excludeSemantics: true,
+                              onTap: () => onSelect(i), // excludeSemantics drops the InkWell's own action
+                              child: InkWell(
+                                onTap: () => onSelect(i),
+                                child: _Column(
+                                  plot: height,
+                                  height: values[i] * scale,
+                                  color: i == selected ? c.primary : c.chartMuted,
+                                ),
+                              ),
                             ),
+                          ),
+                      ],
+                    ),
+                    if (average case final a? when a > 0 && scale > 0)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: a * scale - 0.75, // centre the 1.5px line on the value
+                        child: IgnorePointer(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (averageText case final t?)
+                                ColoredBox(
+                                  color: c.surface,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(right: 4, bottom: 2),
+                                    child: Text(t, style: AppText.caption.copyWith(fontSize: 10, color: c.inkMuted)),
+                                  ),
+                                ),
+                              CustomPaint(size: const Size.fromHeight(1.5), painter: _DashPainter(c.inkMuted)),
+                            ],
                           ),
                         ),
                       ),
@@ -381,6 +413,27 @@ class SelectableBars extends StatelessWidget {
       ],
     );
   }
+}
+
+/// A 1.5px dashed rule, 4px dashes with 3px gaps.
+class _DashPainter extends CustomPainter {
+  _DashPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = size.height;
+    final y = size.height / 2;
+    for (var x = 0.0; x < size.width; x += 7) {
+      canvas.drawLine(Offset(x, y), Offset((x + 4).clamp(0, size.width), y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashPainter old) => old.color != color;
 }
 
 /// One column: at most 24px wide, 4px rounded at the top, square at the baseline.

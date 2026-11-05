@@ -683,6 +683,9 @@ class _RecentRecords extends StatelessWidget {
 
 /// Spending per day for the last week: the total, how it compares with the week before (an arrow
 /// and words, not color alone), and one column per day. Tapping a column shows that day.
+/// "Rp 59 rb", for the chart's chip and average line.
+String _short(int cents) => cents == 0 ? 'Rp 0' : 'Rp ${NumberFormat.compact(locale: 'id_ID').format(cents / 100)}';
+
 class _WeekSpending extends StatelessWidget {
   const _WeekSpending({required this.totals, required this.today, required this.selected, required this.onSelect});
 
@@ -699,8 +702,9 @@ class _WeekSpending extends StatelessWidget {
     final total = week.fold<int>(0, (sum, v) => sum + v);
     final days = [for (var i = 0; i < 7; i++) DateTime(today.year, today.month, today.day - 6 + i)];
     final change = percentChange(total, before);
-    final (IconData? icon, String? text, Color color) = switch (change) {
-      null => (null, null, c.inkMuted),
+    final (IconData icon, String text, Color color) = switch (change) {
+      // Nothing to compare with yet (a new user's first weeks): say so rather than leave a gap.
+      null => (Icons.remove, 'Belum ada pengeluaran di 7 hari sebelumnya', c.inkMuted),
       final p when p.round() == 0 => (Icons.remove, 'Sama dengan 7 hari sebelumnya', c.inkMuted),
       final p when p < 0 => (Icons.arrow_downward, '${p.abs().round()}% lebih hemat dari 7 hari sebelumnya', c.income),
       final p => (Icons.arrow_upward, '${p.round()}% lebih banyak dari 7 hari sebelumnya', c.alert),
@@ -714,21 +718,19 @@ class _WeekSpending extends StatelessWidget {
           Text('Pengeluaran 7 hari terakhir', style: AppText.heading.copyWith(fontSize: 16)),
           const SizedBox(height: 6),
           Text(formatAmount(total), style: AppText.amount.copyWith(fontSize: 22)),
-          if (text != null) ...[
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(icon, size: 14, color: color),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: AppText.caption.copyWith(color: color, fontWeight: FontWeight.w500),
-                  ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  text,
+                  style: AppText.caption.copyWith(color: color, fontWeight: FontWeight.w500),
                 ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
           if (total == 0)
             Padding(
               padding: const EdgeInsets.only(top: 12),
@@ -744,7 +746,9 @@ class _WeekSpending extends StatelessWidget {
               ],
               selected: selected,
               onSelect: onSelect,
-              valueText: (v) => v == 0 ? 'Rp 0' : 'Rp ${NumberFormat.compact(locale: 'id_ID').format(v / 100)}',
+              valueText: _short,
+              average: total ~/ 7,
+              averageText: 'rata-rata ${_short(total ~/ 7)}',
               height: 110,
             ),
         ],
