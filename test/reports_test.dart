@@ -2,6 +2,8 @@ import 'package:cashflow_app/reports.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  todayAllowanceTests();
+
   test('periodElapsed counts today as passed', () {
     expect(periodElapsed('month', DateTime(2026, 11, 4, 13)), closeTo(4 / 30, 1e-9));
     expect(periodElapsed('month', DateTime(2026, 11, 30, 23)), 1.0);
@@ -98,5 +100,18 @@ void main() {
     final reached = planGoal(saved: 150, target: 100, targetDate: DateTime(2026, 1, 1), now: now);
     expect((reached.reached, reached.late, reached.remaining, reached.progress), (true, false, 0, 1.0));
     expect(planGoal(saved: 10, target: 100, targetDate: DateTime(2026, 11, 2), now: now).late, true);
+  });
+}
+
+void todayAllowanceTests() {
+  final now = DateTime(2026, 11, 5, 14);
+  final end = DateTime(2026, 12, 1); // 26 days left, today included
+
+  test('todayAllowance: fixed at the start of the day, each purchase takes its full amount', () {
+    // Rp 2.600.000 budget, Rp 400.000 spent before today: Rp 84.615 a day.
+    expect(todayAllowance(40000000, 0, 260000000, end, now), (perDay: 8461538, left: 8461538));
+    expect(todayAllowance(41000000, 1000000, 260000000, end, now), (perDay: 8461538, left: 7461538));
+    expect(todayAllowance(50000000, 10000000, 260000000, end, now)!.left, -1538462);
+    expect(todayAllowance(270000000, 0, 260000000, end, now), null);
   });
 }

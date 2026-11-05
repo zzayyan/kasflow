@@ -565,22 +565,33 @@ class _AllowancePanel extends StatelessWidget {
     final now = DateTime.now();
     final limit = b?.row['amount'] as int? ?? 0;
     final (_, end) = periodRange(b?.row['period'] as String? ?? 'month', now);
-    final perDay = b == null ? null : dailyAllowance(b.spent, limit, end, now);
-    final over = b != null && perDay == null;
+    // Fixed at the start of the day, then each purchase today takes its full amount off.
+    final today = b == null ? null : todayAllowance(b.spent, b.spentToday, limit, end, now);
+    final exhausted = b != null && today == null; // nothing was left before today
+    final overToday = today != null && today.left < 0;
+    final over = exhausted || overToday;
     final daysLeft = DateTime(end.year, end.month, end.day).difference(DateTime(now.year, now.month, now.day)).inDays;
     String money(int cents) => hidden ? 'Rp •••' : formatAmount(cents);
+    String short(int cents) => hidden ? 'Rp •••' : formatCompact(cents);
 
     final (IconData icon, String title, String detail) = switch (b) {
       null => (Icons.savings_outlined, 'Atur budget untuk melihat jatah harian', 'Buka Rencana'),
-      _ when over => (
+      _ when exhausted => (
         Icons.warning_amber_rounded,
         'Budget ${b.row['name']} habis',
         b.spent > limit ? 'Terlewat ${money(b.spent - limit)}' : 'Tidak ada sisa sampai periode berikutnya',
       ),
+      _ when overToday => (
+        Icons.warning_amber_rounded,
+        'Jatah hari ini terlewat',
+        '${b.row['name']} · jatah ${short(today.perDay)}, terpakai ${short(b.spentToday)}',
+      ),
       _ => (
         Icons.verified_user_outlined,
-        'Jatah hari ini · ${b.row['name']}',
-        'sisa ${hidden ? 'Rp •••' : formatCompact(limit - b.spent)} · $daysLeft hari lagi',
+        'Jatah hari ini',
+        b.spentToday == 0
+            ? '${b.row['name']} · sisa ${short(limit - b.spent)}, $daysLeft hari lagi'
+            : '${b.row['name']} · terpakai ${short(b.spentToday)} dari ${short(today!.perDay)}',
       ),
     };
     final fg = over ? c.alert : c.onHero;
@@ -605,24 +616,29 @@ class _AllowancePanel extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Short title on one line; the detail (budget name first) may take two.
                     Text(
                       title,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.caption.copyWith(color: over ? c.alert : c.onHeroChip, fontWeight: FontWeight.w500),
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       detail,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.caption.copyWith(fontSize: 11, color: over ? c.alert : c.onHeroMuted),
                     ),
                   ],
                 ),
               ),
-              if (perDay != null) ...[
+              if (today != null) ...[
                 const SizedBox(width: 8),
-                Text(money(perDay), style: AppText.amount.copyWith(fontSize: 20, color: fg)),
+                Text(
+                  overToday ? '−${money(-today.left)}' : money(today.left),
+                  style: AppText.amount.copyWith(fontSize: 20, color: fg),
+                ),
               ] else if (b == null)
                 Icon(Icons.chevron_right, size: 20, color: c.onHeroChip),
             ],

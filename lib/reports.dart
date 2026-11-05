@@ -158,6 +158,14 @@ int? dailyAllowance(int spent, int limit, DateTime end, DateTime now) {
   return days <= 0 ? null : remaining ~/ days;
 }
 
+/// Today's allowance, fixed at the start of the day from what was spent before today, and what is
+/// left of it after today's spending ([spent] includes [spentToday]). `left` goes negative once
+/// today's spending passes the allowance. Null when the budget had nothing left before today.
+({int perDay, int left})? todayAllowance(int spent, int spentToday, int limit, DateTime end, DateTime now) {
+  final perDay = dailyAllowance(spent - spentToday, limit, end, now);
+  return perDay == null ? null : (perDay: perDay, left: perDay - spentToday);
+}
+
 class GoalPlan {
   const GoalPlan({
     required this.progress,

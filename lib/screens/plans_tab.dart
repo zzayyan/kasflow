@@ -21,10 +21,11 @@ const periodLabels = {'week': 'Mingguan', 'month': 'Bulanan', 'year': 'Tahunan'}
 const _periodNouns = {'week': 'minggu', 'month': 'bulan', 'year': 'tahun'};
 
 class BudgetView {
-  const BudgetView(this.row, this.spent);
+  const BudgetView(this.row, this.spent, [this.spentToday = 0]);
 
   final Map<String, dynamic> row;
-  final int spent;
+  final int spent; // this period, today included
+  final int spentToday;
 }
 
 /// The budget Beranda's "Jatah hari ini" follows: the one the user picked ([pickedId], this phone's
@@ -63,14 +64,19 @@ Stream<List<BudgetView>> watchBudgets() => db
         for (final b in rows)
           await () async {
             final (start, end) = periodRange(b['period'] as String, now);
-            final spent = await db.get(_spentSql, [
-              utcIso(start),
-              utcIso(end),
+            final today = DateTime(now.year, now.month, now.day);
+            Future<int> spentBetween(DateTime from, DateTime to) async => (await db.get(_spentSql, [
+              utcIso(from),
+              utcIso(to),
               b['category_ids'] ?? '[]',
               b['account_ids'] ?? '[]',
               b['label_ids'] ?? '[]',
-            ]);
-            return BudgetView(b, spent['spent'] as int);
+            ]))['spent'] as int;
+            return BudgetView(
+              b,
+              await spentBetween(start, end),
+              await spentBetween(today, DateTime(today.year, today.month, today.day + 1)),
+            );
           }(),
       ];
     });
