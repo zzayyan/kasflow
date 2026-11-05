@@ -50,3 +50,4 @@ app.*.map.json
 # Local build config, written by scripts/setup-backend.sh (template: .env.example)
 .env
 supabase/.temp/
+data/
