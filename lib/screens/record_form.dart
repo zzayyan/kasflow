@@ -128,6 +128,7 @@ class _RecordFormState extends State<RecordForm> {
   final _quick = TextEditingController();
   final _amount = TextEditingController();
   final _note = TextEditingController();
+  final _fee = TextEditingController(); // a transfer's admin fee, saved as its own expense
   List<String> _quickLabels = const []; // "#liburan" typed in the quick field, created on save
   String _type = 'expense';
   late String _accountId = widget.accounts.first['id'] as String;
@@ -264,6 +265,10 @@ class _RecordFormState extends State<RecordForm> {
     if (_type == 'transfer' && (_targetId == null || _targetId == _accountId)) {
       return showMessage(context, 'Pilih akun tujuan yang berbeda.');
     }
+    final fee = _type == 'transfer' && !_editing && _fee.text.trim().isNotEmpty ? parseAmount(_fee.text) : null;
+    if (_type == 'transfer' && !_editing && _fee.text.trim().isNotEmpty && fee == null) {
+      return showMessage(context, 'Biaya admin tidak valid. Contoh: 1.000 atau 2,5rb');
+    }
     final currency = widget.accounts.firstWhere((a) => a['id'] == _accountId)['currency'] as String;
     final p = widget.prefill;
     final note = _note.text.trim();
@@ -305,6 +310,20 @@ class _RecordFormState extends State<RecordForm> {
         nextDue: p?.nextDue,
         labelIds: [..._labelIds],
       );
+      // The fee leaves the source account too, but as spending, so Laporan counts it.
+      if (fee != null) {
+        await insertRecord(
+          accountId: _accountId,
+          type: 'expense',
+          amount: fee,
+          currency: currency,
+          occurredAt: _date,
+          categoryId: widget.categories
+              .where((x) => x['type'] == 'expense' && x['name'] == 'Lainnya')
+              .firstOrNull?['id'] as String?,
+          note: 'Biaya admin transfer',
+        );
+      }
     }
     // Learn only from notes the user typed (manual or quick input): a notification title like
     // "Pembayaran berhasil" or a bill name says nothing new. When editing, only an actual change of
@@ -327,6 +346,7 @@ class _RecordFormState extends State<RecordForm> {
     _quick.dispose();
     _amount.dispose();
     _note.dispose();
+    _fee.dispose();
     super.dispose();
   }
 
@@ -497,6 +517,28 @@ class _RecordFormState extends State<RecordForm> {
                       if (id != null) setState(() => _targetId = id);
                     },
                   ),
+                  // ponytail: new transfers only; editing a transfer leaves its fee record alone.
+                  if (!_editing) ...[
+                    const Divider(indent: 16, endIndent: 16),
+                    _Row(
+                      icon: Icons.receipt_long_outlined,
+                      label: 'Biaya admin',
+                      child: TextField(
+                        controller: _fee,
+                        keyboardType: TextInputType.number,
+                        style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                        decoration: const InputDecoration(
+                          hintText: '0',
+                          filled: false,
+                          isCollapsed: true,
+                          contentPadding: EdgeInsets.zero,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
                 const Divider(indent: 16, endIndent: 16),
                 _Row(icon: Icons.calendar_today_outlined, label: 'Tanggal', value: _dateText, onTap: _pickDate),
