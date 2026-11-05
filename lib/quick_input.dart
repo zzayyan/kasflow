@@ -1,7 +1,9 @@
 import 'categorize.dart';
 import 'money.dart';
 
-// B2: one line of free text -> a transaction, with plain rules (no LLM, works offline).
+// B2: one line of free text -> transactions. "Catat cepat" asks Gemini first
+// (supabase/functions/parse-quick-input, read back by entriesFromAnswer); the plain rules in
+// parseQuickInput fill the record form as the user types and stand in when Gemini is unreachable.
 // "bakso 25rb pakai dana", "gaji masuk bca 5jt", "bensin 30rb kemarin".
 
 class QuickEntry {
@@ -11,18 +13,73 @@ class QuickEntry {
     required this.note,
     required this.date,
     this.accountId,
+    this.transferAccountId,
     this.categoryId,
     this.labels = const [],
+    this.sure = true,
   });
 
   final int amount;
-  final String type; // 'expense' or 'income'
+  final String type; // 'expense', 'income', or 'transfer' (Gemini only)
   final String note; // the words left after removing amount, account and date words
   final DateTime date;
   final String? accountId; // null: the caller picks a default
+  final String? transferAccountId; // a transfer's destination
   final String? categoryId; // null: no keyword matched, ask the user
   final List<String> labels; // label names from hashtags, "#liburan" -> "liburan"
+  final bool sure; // false: the form opens for the user to check (Gemini's amount is not in the line)
 }
+
+/// The transactions in Gemini's [answer] for the line [input]. Only ids found in [accounts] and
+/// [categories] are kept. An amount that does not appear in the line, or an odd date, marks the
+/// entry unsure, so the form opens to check it instead of saving a made-up number.
+List<QuickEntry> entriesFromAnswer(
+  Map<String, dynamic> answer,
+  String input, {
+  required List<Map<String, dynamic>> accounts,
+  required List<Map<String, dynamic>> categories,
+  DateTime? now,
+}) {
+  now ??= DateTime.now();
+  final amounts = {
+    for (final t in _joinSuffixes(input).split(RegExp(r'\s+'))) ?parseAmount(t.replaceFirst(RegExp(r'[,;.]$'), '')),
+  };
+  final labels = [for (final m in RegExp(r'#(\S+)').allMatches(input)) m[1]!.toLowerCase()];
+  String? account(Object? id) => accounts.any((a) => a['id'] == id) ? id as String : null;
+  final transactions = answer['transactions'];
+  final entries = <QuickEntry>[];
+  for (final t in transactions is List ? transactions.whereType<Map<String, dynamic>>() : <Map<String, dynamic>>[]) {
+    final rupiah = t['amount'];
+    if (rupiah is! int || rupiah <= 0) continue;
+    final type = const {'expense', 'income', 'transfer'}.contains(t['type']) ? t['type'] as String : 'expense';
+    final note = t['note'] is String ? (t['note'] as String).trim() : '';
+    final daysAgo = t['days_ago'] is int ? t['days_ago'] as int : -1;
+    final dated = daysAgo >= 0 && daysAgo <= 366;
+    final categoryId = categories.any((c) => c['id'] == t['category_id'] && c['type'] == type)
+        ? t['category_id'] as String
+        : guessCategoryId(note, type, categories);
+    entries.add(
+      QuickEntry(
+        amount: rupiah * 100,
+        type: type,
+        note: note,
+        date: DateTime(now.year, now.month, now.day - (dated ? daysAgo : 0), now.hour, now.minute),
+        accountId: account(t['account_id']),
+        transferAccountId: type == 'transfer' ? account(t['transfer_account_id']) : null,
+        categoryId: type == 'transfer' ? null : categoryId,
+        labels: labels,
+        sure: amounts.contains(rupiah * 100) && dated,
+      ),
+    );
+  }
+  return entries;
+}
+
+/// "25 rb" -> "25rb", so an amount is a single token.
+String _joinSuffixes(String input) => input.trim().replaceAllMapped(
+  RegExp(r'(\d)\s+(rb|ribu|k|jt|juta)\b', caseSensitive: false),
+  (m) => '${m[1]}${m[2]}',
+);
 
 const _incomeWords = {
   'gaji',
@@ -53,11 +110,7 @@ QuickEntry? parseQuickInput(
   DateTime? now,
 }) {
   now ??= DateTime.now();
-  // "25 rb" -> "25rb", so the amount is a single token.
-  final joined = input.trim().replaceAllMapped(
-    RegExp(r'(\d)\s+(rb|ribu|k|jt|juta)\b', caseSensitive: false),
-    (m) => '${m[1]}${m[2]}',
-  );
+  final joined = _joinSuffixes(input);
   final tokens = joined.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
   final lower = [for (final t in tokens) t.toLowerCase()];
   final used = <int>{};
