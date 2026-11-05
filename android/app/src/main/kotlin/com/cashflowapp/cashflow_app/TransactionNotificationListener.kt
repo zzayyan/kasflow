@@ -11,16 +11,21 @@ import java.io.File
  * Runs even while the app is closed. Appends notifications from finance apps to
  * filesDir/notification_inbox.jsonl; lib/notifications.dart imports and clears that file.
  * Only allowlisted packages are written, so chats and other notifications never touch disk.
+ * Gmail is allowlisted per sender: only bank emails are written, never other mail.
  */
 class TransactionNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         // Debug builds also accept `adb shell cmd notification post ...` (package com.android.shell) for testing.
         val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        if (sbn.packageName !in FINANCE_PACKAGES && !(debuggable && sbn.packageName == "com.android.shell")) return
+        val pkg = sbn.packageName
+        if (pkg !in FINANCE_PACKAGES && pkg != GMAIL && !(debuggable && pkg == "com.android.shell")) return
         val n = sbn.notification
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         val extras = n.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        // Gmail's notification title is the sender: "Bank BRI", or "BankBRI@bri.co.id" when an
+        // email has no display name. Upper-case "BRI" matches both and hardly any person's name.
+        if (pkg == GMAIL && !title.contains("BRI")) return
         val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
             ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
         if (text.isBlank()) return
@@ -50,5 +55,9 @@ class TransactionNotificationListener : NotificationListenerService() {
             "com.jago.digitalBanking",
             "id.co.bankbkemobile.digitalbank",
         )
+
+        // BRImo emails every QRIS payment and transfer; its SMS and WhatsApp alerts start at Rp100.000.
+        // Keep in sync with providerByPackage in lib/notifications.dart.
+        const val GMAIL = "com.google.android.gm"
     }
 }

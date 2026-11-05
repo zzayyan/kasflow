@@ -415,7 +415,7 @@ class _NotificationInboxState extends State<NotificationInbox> with WidgetsBindi
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _subs.addAll([
-      db.watch('SELECT * FROM inbox ORDER BY posted_at DESC').listen((rows) {
+      db.watch('SELECT * FROM inbox WHERE amount IS NOT NULL ORDER BY posted_at DESC').listen((rows) {
         if (mounted) setState(() => _rows = rows);
       }),
       db.watch('SELECT id, name, type, keywords FROM categories WHERE archived = 0').listen((rows) {

@@ -107,7 +107,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
         SELECT COUNT(*) AS n, COALESCE(SUM(b.balance), 0) AS total
         FROM accounts a JOIN ($accountBalancesSql) b ON b.id = a.id
         WHERE a.archived = 0''', (rows) => _accounts = rows.first),
-      _watch('SELECT provider, COUNT(*) AS n FROM inbox GROUP BY provider', (rows) => _inbox = rows),
+      _watch('SELECT provider, COUNT(*) AS n FROM inbox WHERE amount IS NOT NULL GROUP BY provider', (rows) => _inbox = rows),
       _watch('SELECT COUNT(*) AS n FROM planned_payments', (rows) => _bills = rows.first['n'] as int),
     ]);
     _watchMonth();

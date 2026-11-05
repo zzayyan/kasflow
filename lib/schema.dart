@@ -115,7 +115,8 @@ const schema = Schema([
   ]),
   Table('exchange_rates', [Column.text('rate_date'), Column.text('currency'), Column.text('per_usd')]),
   // B1: transactions detected in bank/e-wallet notifications, waiting for the user to
-  // confirm. Local-only: raw notification text never leaves the phone.
+  // confirm; amount NULL means Gemini has not read it yet. Local-only: the raw text stays on
+  // the phone, and only a redacted copy goes to Gemini (lib/notifications.dart).
   Table.localOnly('inbox', [
     Column.text('ref'),
     Column.text('package'),
