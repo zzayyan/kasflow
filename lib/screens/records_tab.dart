@@ -30,79 +30,186 @@ class RecordsTab extends StatefulWidget {
 }
 
 class _RecordsTabState extends State<RecordsTab> {
-  // ponytail: newest 500 only; add paging when a user has more history than that.
-  final _records = db.watch('''
+  static const _select = '''
     SELECT r.*, a.name AS account_name, t.name AS target_name, c.name AS category_name, c.icon AS category_icon,
       (SELECT group_concat('#' || l.name, ' ') FROM json_each(r.label_ids) j JOIN labels l ON l.id = j.value)
         AS label_names
     FROM records r
     LEFT JOIN accounts a ON a.id = r.account_id
     LEFT JOIN accounts t ON t.id = r.transfer_account_id
-    LEFT JOIN categories c ON c.id = r.category_id
-    ORDER BY julianday(r.occurred_at) DESC LIMIT 500''');
+    LEFT JOIN categories c ON c.id = r.category_id''';
+
+  // ponytail: newest 500 only; add paging when a user has more history than that.
+  static Stream<List<Map<String, dynamic>>> _latest() =>
+      db.watch('$_select ORDER BY julianday(r.occurred_at) DESC LIMIT 500');
+
+  /// Every record, however old, whose note, category, account, label or amount holds [text].
+  /// ponytail: % and _ typed in the search act as LIKE wildcards; escape them if that ever bites.
+  static Stream<List<Map<String, dynamic>>> _matching(String text) {
+    final digits = text.replaceAll(RegExp(r'[^0-9]'), '');
+    return db.watch(
+      '''
+      $_select
+      WHERE lower(coalesce(r.note, '')) LIKE ?1 OR lower(coalesce(c.name, '')) LIKE ?1
+        OR lower(coalesce(a.name, '')) LIKE ?1 OR lower(coalesce(t.name, '')) LIKE ?1
+        OR EXISTS (SELECT 1 FROM json_each(r.label_ids) j JOIN labels l ON l.id = j.value
+          WHERE lower('#' || l.name) LIKE ?1)
+        OR (?2 != '' AND CAST(r.amount / 100 AS TEXT) LIKE '%' || ?2 || '%')
+      ORDER BY julianday(r.occurred_at) DESC LIMIT $_searchLimit''',
+      parameters: ['%${text.toLowerCase()}%', digits],
+    );
+  }
+
+  static const _searchLimit = 300;
 
   String? _type; // filter; null shows every type
+  bool _searching = false;
+  String _query = '';
+  late Stream<List<Map<String, dynamic>>> _rows = _latest(); // a new watch per State: one listener each
+  Timer? _debounce;
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _onQuery(String text) {
+    _debounce?.cancel();
+    // Wait for a pause in typing before querying again.
+    _debounce = Timer(const Duration(milliseconds: 250), () {
+      final q = text.trim();
+      if (!mounted || q == _query) return;
+      setState(() {
+        _query = q;
+        _rows = q.isEmpty ? _latest() : _matching(q);
+      });
+    });
+  }
+
+  void _closeSearch() {
+    _debounce?.cancel();
+    _search.clear();
+    setState(() {
+      _searching = false;
+      _query = '';
+      _rows = _latest();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    return SafeArea(
-      bottom: false,
-      child: StreamBuilder(
-        stream: _records,
-        builder: (context, snap) {
-          final rows = snap.data?.where((r) => _type == null || r['type'] == _type).toList();
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(AppSpace.page, 16, AppSpace.page, 24),
-            children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 46),
-                child: Align(alignment: Alignment.centerLeft, child: Text('Transaksi', style: AppText.title)),
-              ),
-              const SizedBox(height: 16),
-              const QuickInputBar(),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: AppSpace.tight,
-                runSpacing: AppSpace.tight,
-                children: [
-                  for (final (type, label) in const [
-                    (null, 'Semua'),
-                    ('expense', 'Keluar'),
-                    ('income', 'Masuk'),
-                    ('transfer', 'Transfer'),
-                  ])
-                    ChoiceChip(
-                      label: Text(label),
-                      selected: _type == type,
-                      showCheckmark: false,
-                      labelStyle: AppText.label.copyWith(
-                        fontSize: 14,
-                        color: _type == type ? c.onPrimary : c.ink,
-                        fontWeight: _type == type ? FontWeight.w500 : null,
+    const pill = OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(23)), borderSide: BorderSide.none);
+    return PopScope(
+      // Back closes the search first, then leaves as usual.
+      canPop: !_searching,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _closeSearch();
+      },
+      child: SafeArea(
+        bottom: false,
+        child: StreamBuilder(
+          stream: _rows,
+          builder: (context, snap) {
+            final rows = snap.data?.where((r) => _type == null || r['type'] == _type).toList();
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(AppSpace.page, 16, AppSpace.page, 24),
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 46),
+                  child: _searching
+                      ? TextField(
+                          controller: _search,
+                          autofocus: true,
+                          onChanged: _onQuery,
+                          textInputAction: TextInputAction.search,
+                          style: AppText.body,
+                          decoration: InputDecoration(
+                            hintText: 'Cari catatan, kategori, akun, nominal',
+                            prefixIcon: Icon(Icons.search, size: 20, color: c.inkMuted),
+                            suffixIcon: IconButton(
+                              tooltip: 'Tutup pencarian',
+                              onPressed: _closeSearch,
+                              icon: Icon(Icons.close, size: 20, color: c.ink),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 13),
+                            border: pill,
+                            enabledBorder: pill,
+                            focusedBorder: pill.copyWith(borderSide: BorderSide(color: c.primary, width: 1.5)),
+                          ),
+                        )
+                      : Row(
+                          children: [
+                            Expanded(child: Text('Transaksi', style: AppText.title)),
+                            // The round search button of the "E · Transaksi" artboard.
+                            IconButton(
+                              tooltip: 'Cari transaksi',
+                              onPressed: () => setState(() => _searching = true),
+                              style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
+                              icon: Icon(Icons.search, size: 20, color: c.ink),
+                            ),
+                          ],
+                        ),
+                ),
+                const SizedBox(height: 16),
+                if (!_searching) ...[const QuickInputBar(), const SizedBox(height: 16)],
+                Wrap(
+                  spacing: AppSpace.tight,
+                  runSpacing: AppSpace.tight,
+                  children: [
+                    for (final (type, label) in const [
+                      (null, 'Semua'),
+                      ('expense', 'Keluar'),
+                      ('income', 'Masuk'),
+                      ('transfer', 'Transfer'),
+                    ])
+                      ChoiceChip(
+                        label: Text(label),
+                        selected: _type == type,
+                        showCheckmark: false,
+                        labelStyle: AppText.label.copyWith(
+                          fontSize: 14,
+                          color: _type == type ? c.onPrimary : c.ink,
+                          fontWeight: _type == type ? FontWeight.w500 : null,
+                        ),
+                        onSelected: (_) => setState(() => _type = type),
                       ),
-                      onSelected: (_) => setState(() => _type = type),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (!_searching) const NotificationInbox(),
+                if (_query.isNotEmpty && rows != null && rows.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 10),
+                    child: Text(
+                      '${rows.length}${snap.data!.length == _searchLimit ? '+' : ''} transaksi cocok dengan "$_query"',
+                      style: AppText.label.copyWith(color: c.inkMuted),
                     ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              const NotificationInbox(),
-              if (rows == null)
-                const Center(child: CircularProgressIndicator())
-              else if (rows.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 32),
-                  child: Text(
-                    _type == null ? 'Belum ada transaksi. Tekan + untuk mencatat.' : 'Tidak ada transaksi jenis ini.',
-                    textAlign: TextAlign.center,
-                    style: AppText.body.copyWith(color: c.inkMuted),
                   ),
-                )
-              else
-                for (final day in _byDay(rows)) _DayGroup(day),
-            ],
-          );
-        },
+                if (rows == null)
+                  const Center(child: CircularProgressIndicator())
+                else if (rows.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 32),
+                    child: Text(
+                      _query.isNotEmpty
+                          ? 'Tidak ada transaksi yang cocok dengan "$_query".'
+                          : _type == null
+                          ? 'Belum ada transaksi. Tekan + untuk mencatat.'
+                          : 'Tidak ada transaksi jenis ini.',
+                      textAlign: TextAlign.center,
+                      style: AppText.body.copyWith(color: c.inkMuted),
+                    ),
+                  )
+                else
+                  for (final day in _byDay(rows)) _DayGroup(day),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

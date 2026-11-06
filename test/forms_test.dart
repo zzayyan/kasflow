@@ -45,6 +45,22 @@ void main() {
       expect(_focused(tester, 'contoh: bakso, bensin, token PLN'), isTrue);
     });
 
+    testWidgets('Catat: typing a note offers earlier notes, and picking one fills it ($brightness)', (tester) async {
+      await _pump(
+        tester,
+        const RecordForm(accounts: _accounts, categories: _categories, labels: [], notes: ['Ayam Goreng', 'Bakso']),
+        brightness,
+      );
+      await tester.tap(find.text('Catatan'));
+      await tester.enterText(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'contoh: bakso, bensin, token PLN'), 'ay');
+      await tester.pumpAndSettle();
+      expect(find.text('Ayam Goreng'), findsOneWidget);
+      expect(find.text('Bakso'), findsNothing);
+      await tester.tap(find.text('Ayam Goreng'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextField, 'Ayam Goreng'), findsOneWidget);
+    });
+
     testWidgets('Tagihan sheet builds and its rows focus their fields ($brightness)', (tester) async {
       await _pump(tester, const Scaffold(body: BillForm(accounts: _accounts, categories: _categories)), brightness);
       expect(find.text('Tagihan baru'), findsOneWidget);

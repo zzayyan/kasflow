@@ -110,21 +110,39 @@ Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
     [prefill?.categoryId],
   );
   final labels = await db.getAll('SELECT id, name FROM labels ORDER BY name COLLATE NOCASE');
+  // Past notes for the Catatan suggestions, the most used (then the latest) first.
+  final notes = await db.getAll('''
+    SELECT MIN(note) AS note FROM records WHERE note IS NOT NULL AND trim(note) != ''
+    GROUP BY lower(trim(note)) ORDER BY COUNT(*) DESC, MAX(occurred_at) DESC LIMIT 300''');
   if (!context.mounted) return;
   await Navigator.push(
     context,
     MaterialPageRoute<void>(
-      builder: (_) => RecordForm(accounts: accounts, categories: categories, labels: labels, prefill: prefill),
+      builder: (_) => RecordForm(
+        accounts: accounts,
+        categories: categories,
+        labels: labels,
+        notes: [for (final n in notes) (n['note'] as String).trim()],
+        prefill: prefill,
+      ),
     ),
   );
 }
 
 class RecordForm extends StatefulWidget {
-  const RecordForm({super.key, required this.accounts, required this.categories, required this.labels, this.prefill});
+  const RecordForm({
+    super.key,
+    required this.accounts,
+    required this.categories,
+    required this.labels,
+    this.notes = const [],
+    this.prefill,
+  });
 
   final List<Map<String, dynamic>> accounts;
   final List<Map<String, dynamic>> categories;
   final List<Map<String, dynamic>> labels;
+  final List<String> notes; // past notes, most used first: the Catatan suggestions
   final Prefill? prefill;
 
   @override
@@ -532,12 +550,68 @@ class _RecordFormState extends State<RecordForm> {
                 icon: Icons.edit_outlined,
                 label: 'Catatan',
                 focusNode: _noteFocus,
-                child: TextField(
-                  controller: _note,
-                  focusNode: _noteFocus,
-                  onChanged: _onNoteChanged,
-                  style: AppText.body.copyWith(fontWeight: FontWeight.w500),
-                  decoration: bareField('contoh: bakso, bensin, token PLN'),
+                // Earlier notes that continue what is typed ("ayam" -> "Ayam Goreng") drop down
+                // under the row; picking one fills the note and guesses its category.
+                child: LayoutBuilder(
+                  builder: (context, box) => RawAutocomplete<String>(
+                    textEditingController: _note,
+                    focusNode: _noteFocus,
+                    optionsBuilder: (value) => noteSuggestions(widget.notes, value.text),
+                    onSelected: (note) {
+                      haptic(Haptic.tick);
+                      _onNoteChanged(note);
+                    },
+                    fieldViewBuilder: (context, controller, focusNode, _) => TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      onChanged: _onNoteChanged,
+                      style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                      decoration: bareField('contoh: bakso, bensin, token PLN'),
+                    ),
+                    optionsViewBuilder: (context, onSelected, options) => Align(
+                      alignment: Alignment.topLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Material(
+                          color: c.surface,
+                          elevation: 6,
+                          shadowColor: Colors.black26,
+                          borderRadius: BorderRadius.circular(AppRadius.input),
+                          clipBehavior: Clip.antiAlias,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: box.maxWidth, maxHeight: 260),
+                            child: ListView(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              shrinkWrap: true,
+                              children: [
+                                for (final note in options)
+                                  InkWell(
+                                    onTap: () => onSelected(note),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.history, size: 18, color: c.inkMuted),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              note,
+                                              style: AppText.body,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
               if (!transfer)

@@ -60,4 +60,13 @@ void main() {
     expect(guessCategoryId('Gaji bulan November masuk', 'income', categories), 'gaji');
     expect(guessCategoryId('Gaji bulan November masuk', 'expense', categories), null);
   });
+
+  test('noteSuggestions puts notes that start with the text first, and skips an exact match', () {
+    const notes = ['Nasi Ayam', 'Ayam Goreng', 'ayam', 'Bakso', 'Ayam Bakar', 'Biaya admin', 'Es Teh'];
+    expect(noteSuggestions(notes, 'ayam'), ['Ayam Goreng', 'Ayam Bakar', 'Nasi Ayam']);
+    expect(noteSuggestions(notes, 'ay'), ['Ayam Goreng', 'ayam', 'Ayam Bakar', 'Nasi Ayam']); // not "Biaya admin"
+    expect(noteSuggestions(notes, '  AYAM g'), ['Ayam Goreng']);
+    expect(noteSuggestions(notes, ''), isEmpty);
+    expect(noteSuggestions(notes, 'a', limit: 2).length, 2);
+  });
 }

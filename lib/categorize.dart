@@ -21,6 +21,26 @@ String? guessCategoryId(String text, String type, List<Map<String, dynamic>> cat
   return best;
 }
 
+/// Notes typed before that continue [typed], for the Catatan field: [notes] are past notes, most
+/// used first. Notes starting with it come first, then notes with a later word starting with it
+/// ("ayam" finds "Nasi Ayam", not "Biaya"); at most [limit], never the text already typed. Case is
+/// ignored.
+List<String> noteSuggestions(List<String> notes, String typed, {int limit = 5}) {
+  final t = typed.trim().toLowerCase();
+  if (t.isEmpty) return const [];
+  final starts = <String>[], contains = <String>[];
+  for (final n in notes) {
+    final l = n.toLowerCase();
+    if (l == t) continue;
+    if (l.startsWith(t)) {
+      starts.add(n);
+    } else if (l.contains(' $t')) {
+      contains.add(n);
+    }
+  }
+  return [...starts, ...contains].take(limit).toList();
+}
+
 List<String> _keywords(Object? raw) =>
     raw is String && raw.isNotEmpty ? (jsonDecode(raw) as List).cast<String>() : <String>[];
 
