@@ -1,6 +1,9 @@
+import 'package:cashflow_app/screens/accounts_tab.dart';
 import 'package:cashflow_app/screens/bills_tab.dart';
+import 'package:cashflow_app/screens/plans_tab.dart';
 import 'package:cashflow_app/screens/record_form.dart';
 import 'package:cashflow_app/theme.dart';
+import 'package:cashflow_app/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -50,5 +53,22 @@ void main() {
       await tester.pump();
       expect(_focused(tester, '0'), isTrue);
     });
+
+    // Each sheet: its title shows, and tapping a money row's label puts the cursor in its field.
+    for (final (sheet, title, money) in [
+      (const GoalForm(accounts: _accounts), 'Goal tabungan baru', 'Target'),
+      (const BudgetForm(categories: _categories, labels: []), 'Budget baru', 'Batas pengeluaran'),
+      (const AccountForm(), 'Akun baru', 'Saldo awal'),
+    ]) {
+      testWidgets('$title sheet builds and its money row focuses ($brightness)', (tester) async {
+        await _pump(tester, Scaffold(body: sheet), brightness);
+        expect(find.text(title), findsOneWidget);
+        await tester.tap(find.text(money));
+        await tester.pump();
+        final row = find.ancestor(of: find.text(money), matching: find.byType(FormRow));
+        final field = tester.widget<TextField>(find.descendant(of: row, matching: find.byType(TextField)));
+        expect(field.focusNode!.hasFocus, isTrue);
+      });
+    }
   }
 }

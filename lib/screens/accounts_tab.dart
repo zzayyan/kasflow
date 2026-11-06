@@ -306,6 +306,7 @@ class _AccountRow extends StatelessWidget {
 Future<void> showAccountForm(BuildContext context, {Map<String, dynamic>? account}) => showModalBottomSheet(
   context: context,
   isScrollControlled: true,
+  useSafeArea: true,
   builder: (_) => AccountForm(account: account),
 );
 
@@ -324,6 +325,8 @@ class _AccountFormState extends State<AccountForm> {
   late final _balance = TextEditingController(
     text: _a == null ? null : NumberFormat.decimalPattern('id_ID').format((_a['initial_balance'] as int) / 100),
   );
+  final _nameFocus = FocusNode();
+  final _balanceFocus = FocusNode();
   late String _type = (_a?['type'] as String?) ?? 'cash';
   late String? _provider = _a?['provider'] as String?;
   late bool _inReports = (_a?['exclude_from_stats'] ?? 0) == 0;
@@ -370,94 +373,110 @@ class _AccountFormState extends State<AccountForm> {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final archived = _a != null && _a['archived'] != 0;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, MediaQuery.viewInsetsOf(context).bottom + 16),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(_a == null ? 'Akun baru' : 'Ubah akun', style: AppText.heading),
-            const SizedBox(height: AppSpace.gap),
-            if (_a == null) ...[
-              Wrap(
-                spacing: AppSpace.tight,
-                runSpacing: AppSpace.tight,
-                children: [
-                  for (final p in accountPresets)
-                    ChoiceChip(
-                      label: Text(p.name),
-                      selected: _provider == p.provider,
-                      showCheckmark: false,
-                      labelStyle: AppText.label.copyWith(
-                        fontSize: 14,
-                        color: _provider == p.provider ? c.onPrimary : c.ink,
-                      ),
-                      onSelected: (_) => setState(() {
-                        _provider = p.provider;
-                        _type = p.type;
-                        _name.text = p.name;
-                      }),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-            ],
-            TextField(controller: _name, decoration: const InputDecoration(labelText: 'Nama akun')),
-            const SizedBox(height: AppSpace.gap),
-            DropdownButtonFormField(
-              key: ValueKey(_type),
-              initialValue: _type,
-              decoration: const InputDecoration(labelText: 'Jenis'),
-              style: AppText.body.copyWith(color: c.ink),
-              items: [for (final e in accountTypes.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
-              onChanged: (v) => setState(() => _type = v!),
+    final note = AppText.caption.copyWith(color: c.inkMuted);
+    return FormSheet(
+      title: _a == null ? 'Akun baru' : 'Ubah akun',
+      action: Row(
+        children: [
+          if (_a != null) ...[
+            OutlinedButton(
+              onPressed: _toggleArchive,
+              style: OutlinedButton.styleFrom(minimumSize: const Size(64, 56)),
+              child: Text(archived ? 'Pulihkan' : 'Arsipkan'),
             ),
-            const SizedBox(height: AppSpace.gap),
-            TextField(
-              controller: _balance,
-              keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
-              inputFormatters: const [AmountInputFormatter()],
-              decoration: const InputDecoration(
-                labelText: 'Saldo awal',
-                prefixText: 'Rp ',
-                helperText: 'Untuk kartu kredit/paylater, isi utang sebagai minus, contoh -500.000',
-              ),
+            const SizedBox(width: AppSpace.gap),
+          ],
+          Expanded(
+            child: FilledButton(
+              onPressed: _save,
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+              child: const Text('Simpan'),
             ),
-            const SizedBox(height: 4),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text('Hitung di laporan', style: AppText.body),
-              subtitle: Text(
-                'Matikan untuk tabungan atau dana yang tidak dipakai sehari-hari.',
-                style: AppText.caption.copyWith(color: c.inkMuted),
-              ),
-              value: _inReports,
-              onChanged: (v) => setState(() => _inReports = v),
-            ),
-            const SizedBox(height: AppSpace.gap),
-            Row(
-              children: [
-                if (_a != null) ...[
-                  OutlinedButton(
-                    onPressed: _toggleArchive,
-                    style: OutlinedButton.styleFrom(minimumSize: const Size(64, 56)),
-                    child: Text(archived ? 'Pulihkan' : 'Arsipkan'),
+          ),
+        ],
+      ),
+      children: [
+        if (_a == null)
+          Wrap(
+            spacing: AppSpace.tight,
+            runSpacing: AppSpace.tight,
+            children: [
+              for (final p in accountPresets)
+                ChoiceChip(
+                  label: Text(p.name),
+                  selected: _provider == p.provider,
+                  showCheckmark: false,
+                  labelStyle: AppText.label.copyWith(
+                    fontSize: 14,
+                    color: _provider == p.provider ? c.onPrimary : c.ink,
                   ),
-                  const SizedBox(width: AppSpace.gap),
-                ],
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _save,
-                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
-                    child: const Text('Simpan'),
-                  ),
+                  onSelected: (_) => setState(() {
+                    _provider = p.provider;
+                    _type = p.type;
+                    _name.text = p.name;
+                  }),
                 ),
-              ],
+            ],
+          ),
+        FormCard(
+          children: [
+            FormRow(
+              icon: Icons.edit_outlined,
+              label: 'Nama akun',
+              focusNode: _nameFocus,
+              child: TextField(
+                controller: _name,
+                focusNode: _nameFocus,
+                style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                decoration: bareField('contoh: BCA, Dompet'),
+              ),
+            ),
+            FormRow(
+              icon: Icons.category_outlined,
+              label: 'Jenis',
+              value: accountTypes[_type],
+              onTap: () async {
+                final t = await chooseOne(context, 'Jenis akun', [
+                  for (final e in accountTypes.entries) (e.key, e.value, null),
+                ], _type);
+                if (t != null) setState(() => _type = t);
+              },
+            ),
+            FormRow(
+              icon: Icons.account_balance_wallet_outlined,
+              strong: true,
+              label: 'Saldo awal',
+              focusNode: _balanceFocus,
+              child: MoneyField(controller: _balance, focusNode: _balanceFocus, signed: true),
+            ),
+            FormRow(
+              icon: Icons.bar_chart,
+              label: 'Laporan',
+              value: _inReports ? 'Dihitung di laporan' : 'Tidak dihitung',
+              trailing: Switch(value: _inReports, onChanged: (v) => setState(() => _inReports = v)),
+              chevron: false,
+              onTap: () => setState(() => _inReports = !_inReports),
             ),
           ],
         ),
-      ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Text(
+            'Kartu kredit atau paylater: isi utang sebagai saldo minus, contoh -500.000. '
+            'Matikan Laporan untuk tabungan atau dana yang tidak dipakai sehari-hari.',
+            style: note,
+          ),
+        ),
+      ],
     );
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _balance.dispose();
+    _nameFocus.dispose();
+    _balanceFocus.dispose();
+    super.dispose();
   }
 }

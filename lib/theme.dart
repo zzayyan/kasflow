@@ -423,7 +423,13 @@ ThemeData buildAppTheme(Brightness brightness) {
       actionTextColor: lightMode ? const Color(0xFFCDE8D2) : c.primary,
     ),
     dividerTheme: DividerThemeData(color: c.divider, thickness: 1, space: 1),
-    listTileTheme: ListTileThemeData(iconColor: c.ink, textColor: c.ink, minTileHeight: AppSpace.rowMin),
+    listTileTheme: ListTileThemeData(
+      iconColor: c.ink,
+      minTileHeight: AppSpace.rowMin, // textColor would override the muted subtitle below
+      // Menu sheets: a medium title over a quieter line that explains it.
+      titleTextStyle: AppText.body.copyWith(fontWeight: FontWeight.w500, color: c.ink),
+      subtitleTextStyle: AppText.label.copyWith(color: c.inkMuted),
+    ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: c.bg,
       surfaceTintColor: Colors.transparent,

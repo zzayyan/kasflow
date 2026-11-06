@@ -361,6 +361,7 @@ class FormRow extends StatelessWidget {
     this.trailing,
     this.badge,
     this.onTap,
+    this.chevron,
     this.strong = false,
   });
 
@@ -369,9 +370,10 @@ class FormRow extends StatelessWidget {
   final String? value;
   final Widget? child;
   final FocusNode? focusNode;
-  final String? trailing;
+  final Widget? trailing; // a muted amount, or a control such as a Switch
   final String? badge;
   final VoidCallback? onTap;
+  final bool? chevron; // shown by default when the row opens something ([onTap])
   final bool strong; // the dark icon circle, for the row that decides the most (category, target)
 
   @override
@@ -429,9 +431,9 @@ class FormRow extends StatelessWidget {
               ),
               if (trailing != null) ...[
                 const SizedBox(width: 8),
-                Text(trailing!, style: AppText.label.copyWith(color: c.inkMuted)),
+                DefaultTextStyle.merge(style: AppText.label.copyWith(color: c.inkMuted), child: trailing!),
               ],
-              if (onTap != null) ...[
+              if (chevron ?? onTap != null) ...[
                 const SizedBox(width: 4),
                 Icon(Icons.chevron_right, size: 18, color: c.inkMuted),
               ],
@@ -441,6 +443,50 @@ class FormRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A rupiah amount typed inside a [FormRow]: "Rp" stays put beside the grouped digits.
+class MoneyField extends StatelessWidget {
+  const MoneyField({super.key, required this.controller, required this.focusNode, this.autofocus = false, this.signed = false});
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool autofocus;
+  final bool signed; // allows a leading "-", e.g. a credit card's debt
+
+  @override
+  Widget build(BuildContext context) {
+    final style = AppText.body.copyWith(fontWeight: FontWeight.w500);
+    return Row(
+      children: [
+        Text('Rp ', style: style.copyWith(color: AppColors.of(context).inkMuted)),
+        Expanded(
+          child: TextField(
+            controller: controller,
+            focusNode: focusNode,
+            autofocus: autofocus,
+            keyboardType: TextInputType.numberWithOptions(signed: signed, decimal: true),
+            inputFormatters: const [AmountInputFormatter()],
+            style: style,
+            decoration: bareField('0'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The small muted heading over a group of chips in a form ("Kategori lain", "Label").
+class FormLabel extends StatelessWidget {
+  const FormLabel(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 4, bottom: 10),
+    child: Text(text, style: AppText.label.copyWith(color: AppColors.of(context).inkMuted)),
+  );
 }
 
 /// One choice out of a few, as one pill track (Keluar / Masuk / Transfer).

@@ -555,7 +555,7 @@ class _RecordFormState extends State<RecordForm> {
                 icon: Icons.account_balance_wallet_outlined,
                 label: transfer ? 'Dari akun' : 'Akun',
                 value: account['name'] as String,
-                trailing: formatAmount(account['balance'] as int),
+                trailing: Text(formatAmount(account['balance'] as int)),
                 onTap: () async {
                   final id = await chooseOne(context, transfer ? 'Dari akun' : 'Akun', _accountOptions(), _accountId);
                   if (id != null) {
@@ -572,7 +572,7 @@ class _RecordFormState extends State<RecordForm> {
                   strong: true,
                   label: 'Ke akun',
                   value: target?['name'] as String? ?? 'Pilih akun tujuan',
-                  trailing: target == null ? null : formatAmount(target['balance'] as int),
+                  trailing: target == null ? null : Text(formatAmount(target['balance'] as int)),
                   onTap: () async {
                     final id = await chooseOne(context, 'Ke akun', _accountOptions(except: _accountId), _targetId);
                     if (id != null) setState(() => _targetId = id);
@@ -639,10 +639,7 @@ class _RecordFormState extends State<RecordForm> {
           ),
           if (!transfer && chips.isNotEmpty) ...[
             const SizedBox(height: 18),
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 10),
-              child: Text('Kategori lain', style: AppText.label.copyWith(color: c.inkMuted)),
-            ),
+            const FormLabel('Kategori lain'),
             Wrap(
               spacing: AppSpace.tight,
               runSpacing: AppSpace.tight,
@@ -662,10 +659,7 @@ class _RecordFormState extends State<RecordForm> {
             ),
           ],
           const SizedBox(height: 18),
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 10),
-            child: Text('Label', style: AppText.label.copyWith(color: c.inkMuted)),
-          ),
+          const FormLabel('Label'),
           LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
         ],
       ),

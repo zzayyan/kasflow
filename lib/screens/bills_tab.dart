@@ -222,11 +222,9 @@ class _BillFormState extends State<BillForm> {
 
   @override
   Widget build(BuildContext context) {
-    final c = AppColors.of(context);
     final categories = widget.categories.where((x) => x['type'] == _type).toList();
     final category = categories.where((x) => x['id'] == _categoryId).firstOrNull;
     final income = _type == 'income';
-    final fieldText = AppText.body.copyWith(fontWeight: FontWeight.w500);
     return FormSheet(
       title: income ? 'Pemasukan rutin baru' : 'Tagihan baru',
       action: FilledButton(
@@ -256,7 +254,7 @@ class _BillFormState extends State<BillForm> {
                 focusNode: _nameFocus,
                 autofocus: true,
                 onChanged: _onNameChanged,
-                style: fieldText,
+                style: AppText.body.copyWith(fontWeight: FontWeight.w500),
                 decoration: bareField('contoh: Listrik PLN, Kos, Gaji'),
               ),
             ),
@@ -264,21 +262,7 @@ class _BillFormState extends State<BillForm> {
               icon: Icons.payments_outlined,
               label: 'Nominal',
               focusNode: _amountFocus,
-              child: Row(
-                children: [
-                  Text('Rp ', style: fieldText.copyWith(color: c.inkMuted)),
-                  Expanded(
-                    child: TextField(
-                      controller: _amount,
-                      focusNode: _amountFocus,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: const [AmountInputFormatter()],
-                      style: fieldText,
-                      decoration: bareField('0'),
-                    ),
-                  ),
-                ],
-              ),
+              child: MoneyField(controller: _amount, focusNode: _amountFocus),
             ),
             FormRow(
               icon: categoryIcon(category?['name'] as String?, _type, category?['icon'] as String?),

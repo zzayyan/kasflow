@@ -1029,6 +1029,7 @@ Future<void> showGoalForm(BuildContext context) async {
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => GoalForm(accounts: accounts),
   );
 }
@@ -1046,6 +1047,9 @@ class _GoalFormState extends State<GoalForm> {
   final _name = TextEditingController();
   final _target = TextEditingController();
   final _saved = TextEditingController();
+  final _nameFocus = FocusNode();
+  final _targetFocus = FocusNode();
+  final _savedFocus = FocusNode();
   DateTime? _date;
   String _accountId = _newAccount;
 
@@ -1083,57 +1087,83 @@ class _GoalFormState extends State<GoalForm> {
   }
 
   @override
+  void dispose() {
+    _name.dispose();
+    _target.dispose();
+    _saved.dispose();
+    _nameFocus.dispose();
+    _targetFocus.dispose();
+    _savedFocus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final c = AppColors.of(context);
     final date = _date;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.viewInsetsOf(context).bottom + 16),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final newAccount = _accountId == _newAccount;
+    return FormSheet(
+      title: 'Goal tabungan baru',
+      action: FilledButton(
+        onPressed: _save,
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+        child: const Text('Simpan'),
+      ),
+      children: [
+        FormCard(
           children: [
-            TextField(
-              controller: _name,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Nama goal', hintText: 'contoh: Dana darurat'),
+            FormRow(
+              icon: Icons.edit_outlined,
+              label: 'Nama goal',
+              focusNode: _nameFocus,
+              child: TextField(
+                controller: _name,
+                focusNode: _nameFocus,
+                autofocus: true,
+                style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                decoration: bareField('contoh: Dana darurat'),
+              ),
             ),
-            TextField(
-              controller: _target,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: const [AmountInputFormatter()],
-              decoration: const InputDecoration(labelText: 'Target', prefixText: 'Rp '),
+            FormRow(
+              icon: Icons.flag_outlined,
+              strong: true,
+              label: 'Target',
+              focusNode: _targetFocus,
+              child: MoneyField(controller: _target, focusNode: _targetFocus),
             ),
-            DropdownButtonFormField(
-              initialValue: _accountId,
-              decoration: const InputDecoration(labelText: 'Simpan di akun'),
-              items: [
-                const DropdownMenuItem(value: _newAccount, child: Text('Akun tabungan baru')),
-                for (final a in widget.accounts)
-                  DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String)),
-              ],
-              onChanged: (v) => setState(() => _accountId = v!),
+            FormRow(
+              icon: Icons.account_balance_wallet_outlined,
+              label: 'Simpan di akun',
+              value: newAccount
+                  ? 'Akun tabungan baru'
+                  : widget.accounts.firstWhere((a) => a['id'] == _accountId)['name'] as String,
+              onTap: () async {
+                final id = await chooseOne(context, 'Simpan di akun', [
+                  (_newAccount, 'Akun tabungan baru', null),
+                  for (final a in widget.accounts) (a['id'] as String, a['name'] as String, null),
+                ], _accountId);
+                if (id != null) setState(() => _accountId = id);
+              },
             ),
-            if (_accountId == _newAccount)
-              TextField(
-                controller: _saved,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: const [AmountInputFormatter()],
-                decoration: const InputDecoration(labelText: 'Sudah terkumpul (opsional)', prefixText: 'Rp '),
-              )
-            else
-              const Padding(padding: EdgeInsets.only(top: 8), child: Text('Progres goal mengikuti saldo akun ini.')),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.event),
-              title: const Text('Tanggal target (opsional)'),
-              subtitle: Text(date == null ? 'Tanpa tanggal' : DateFormat('d MMMM yyyy', 'id_ID').format(date)),
+            if (newAccount)
+              FormRow(
+                icon: Icons.savings_outlined,
+                label: 'Sudah terkumpul (opsional)',
+                focusNode: _savedFocus,
+                child: MoneyField(controller: _saved, focusNode: _savedFocus),
+              ),
+            FormRow(
+              icon: Icons.calendar_today_outlined,
+              label: 'Tanggal target (opsional)',
+              value: date == null ? 'Tanpa tanggal' : DateFormat('d MMMM yyyy', 'id_ID').format(date),
               trailing: date == null
                   ? null
                   : IconButton(
-                      icon: const Icon(Icons.close),
+                      icon: Icon(Icons.close, size: 18, color: c.inkMuted),
                       tooltip: 'Hapus tanggal',
                       onPressed: () => setState(() => _date = null),
                     ),
+              chevron: date == null,
               onTap: () async {
                 final now = DateTime.now();
                 final picked = await showDatePicker(
@@ -1145,11 +1175,14 @@ class _GoalFormState extends State<GoalForm> {
                 if (picked != null) setState(() => _date = picked);
               },
             ),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: _save, child: const Text('Simpan')),
           ],
         ),
-      ),
+        if (!newAccount)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text('Progres goal mengikuti saldo akun ini.', style: AppText.caption.copyWith(color: c.inkMuted)),
+          ),
+      ],
     );
   }
 }
@@ -1164,6 +1197,7 @@ Future<void> showBudgetForm(BuildContext context, {Map<String, dynamic>? budget}
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => BudgetForm(categories: categories, labels: labels, budget: budget),
   );
 }
@@ -1182,6 +1216,8 @@ class BudgetForm extends StatefulWidget {
 class _BudgetFormState extends State<BudgetForm> {
   final _name = TextEditingController();
   final _amount = TextEditingController();
+  final _nameFocus = FocusNode();
+  final _amountFocus = FocusNode();
   String _period = 'month';
   final _selected = <String>{};
   var _labelIds = <String>{};
@@ -1203,6 +1239,8 @@ class _BudgetFormState extends State<BudgetForm> {
   void dispose() {
     _name.dispose();
     _amount.dispose();
+    _nameFocus.dispose();
+    _amountFocus.dispose();
     super.dispose();
   }
 
@@ -1252,59 +1290,75 @@ class _BudgetFormState extends State<BudgetForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.viewInsetsOf(context).bottom + 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SegmentedButton(
-            segments: [for (final e in periodLabels.entries) ButtonSegment(value: e.key, label: Text(e.value))],
-            selected: {_period},
-            onSelectionChanged: (s) => setState(() => _period = s.first),
-          ),
-          TextField(
-            controller: _amount,
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: const [AmountInputFormatter()],
-            decoration: const InputDecoration(labelText: 'Batas pengeluaran', prefixText: 'Rp '),
-          ),
-          TextField(
-            controller: _name,
-            decoration: const InputDecoration(labelText: 'Nama (opsional)', hintText: 'contoh: Makan bulanan'),
-          ),
-          const SizedBox(height: 12),
-          Text('Kategori (kosongkan untuk semua pengeluaran)', style: Theme.of(context).textTheme.labelMedium),
-          const SizedBox(height: 4),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 180),
-            child: SingleChildScrollView(
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: [
-                  for (final c in widget.categories)
-                    FilterChip(
-                      label: Text(c['name'] as String),
-                      selected: _selected.contains(c['id']),
-                      onSelected: (on) =>
-                          setState(() => on ? _selected.add(c['id'] as String) : _selected.remove(c['id'])),
-                    ),
-                ],
+    final c = AppColors.of(context);
+    return FormSheet(
+      title: widget.budget == null ? 'Budget baru' : 'Ubah budget',
+      action: FilledButton(
+        onPressed: _save,
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+        child: const Text('Simpan'),
+      ),
+      children: [
+        PillSwitch(
+          options: [for (final e in periodLabels.entries) (e.key, e.value)],
+          value: _period,
+          onChanged: (p) => setState(() => _period = p),
+        ),
+        FormCard(
+          children: [
+            FormRow(
+              icon: Icons.savings_outlined,
+              strong: true,
+              label: 'Batas pengeluaran',
+              focusNode: _amountFocus,
+              child: MoneyField(controller: _amount, focusNode: _amountFocus, autofocus: widget.budget == null),
+            ),
+            FormRow(
+              icon: Icons.edit_outlined,
+              label: 'Nama (opsional)',
+              focusNode: _nameFocus,
+              child: TextField(
+                controller: _name,
+                focusNode: _nameFocus,
+                style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                decoration: bareField('contoh: Makan bulanan'),
               ),
             ),
-          ),
-          if (widget.labels.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text('Label (opsional: hanya transaksi berlabel ini)', style: Theme.of(context).textTheme.labelMedium),
-            const SizedBox(height: 4),
-            LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
           ],
-          const SizedBox(height: 16),
-          FilledButton(onPressed: _save, child: const Text('Simpan')),
-        ],
-      ),
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const FormLabel('Kategori, kosongkan untuk semua pengeluaran'),
+            Wrap(
+              spacing: AppSpace.tight,
+              runSpacing: AppSpace.tight,
+              children: [
+                for (final x in widget.categories)
+                  FilterChip(
+                    label: Text(x['name'] as String),
+                    selected: _selected.contains(x['id']),
+                    showCheckmark: false,
+                    labelStyle: AppText.label.copyWith(
+                      fontSize: 14,
+                      color: _selected.contains(x['id']) ? c.onPrimary : c.ink,
+                    ),
+                    onSelected: (on) =>
+                        setState(() => on ? _selected.add(x['id'] as String) : _selected.remove(x['id'])),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        if (widget.labels.isNotEmpty)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const FormLabel('Label, opsional: hanya transaksi berlabel ini'),
+              LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
+            ],
+          ),
+      ],
     );
   }
 }
