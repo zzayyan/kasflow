@@ -8,6 +8,7 @@ import '../categorize.dart';
 import '../db.dart';
 import '../money.dart';
 import '../recurrence.dart';
+import '../theme.dart';
 import '../ui.dart';
 import 'record_form.dart';
 
@@ -119,7 +120,7 @@ Future<void> billOptions(BuildContext context, Map<String, dynamic> b) async {
 Future<void> showBillForm(BuildContext context, {String? name, String type = 'expense'}) async {
   final accounts = await db.getAll('SELECT id, name, currency FROM accounts WHERE archived = 0 ORDER BY name');
   final categories = await db.getAll(
-    'SELECT id, name, type, keywords FROM categories WHERE archived = 0 ORDER BY name',
+    'SELECT id, name, type, keywords, icon FROM categories WHERE archived = 0 ORDER BY name',
   );
   if (!context.mounted) return;
   if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
@@ -128,6 +129,7 @@ Future<void> showBillForm(BuildContext context, {String? name, String type = 'ex
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true, // grown by the keyboard, it stops below the status bar
     builder: (_) => BillForm(
       accounts: accounts,
       categories: categories,
@@ -161,6 +163,8 @@ class BillForm extends StatefulWidget {
 class _BillFormState extends State<BillForm> {
   late final _name = TextEditingController(text: widget.name);
   final _amount = TextEditingController();
+  final _nameFocus = FocusNode();
+  final _amountFocus = FocusNode();
   late String _type = widget.type;
   late String _accountId = widget.accounts.first['id'] as String;
   late String? _categoryId = guessCategoryId(widget.name ?? '', _type, widget.categories);
@@ -208,72 +212,122 @@ class _BillFormState extends State<BillForm> {
   }
 
   @override
+  void dispose() {
+    _name.dispose();
+    _amount.dispose();
+    _nameFocus.dispose();
+    _amountFocus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final categories = widget.categories.where((c) => c['type'] == _type).toList();
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.viewInsetsOf(context).bottom + 16),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final c = AppColors.of(context);
+    final categories = widget.categories.where((x) => x['type'] == _type).toList();
+    final category = categories.where((x) => x['id'] == _categoryId).firstOrNull;
+    final income = _type == 'income';
+    final fieldText = AppText.body.copyWith(fontWeight: FontWeight.w500);
+    return FormSheet(
+      title: income ? 'Pemasukan rutin baru' : 'Tagihan baru',
+      action: FilledButton(
+        onPressed: _save,
+        style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+        child: const Text('Simpan'),
+      ),
+      children: [
+        PillSwitch(
+          options: const [('expense', 'Tagihan'), ('income', 'Pemasukan')],
+          value: _type,
+          onChanged: (type) => setState(() {
+            _type = type;
+            _categoryPicked = false;
+            _categoryId = guessCategoryId(_name.text, _type, widget.categories);
+          }),
+        ),
+        // What is paid, then when.
+        FormCard(
           children: [
-            SegmentedButton(
-              segments: const [
-                ButtonSegment(value: 'expense', label: Text('Tagihan')),
-                ButtonSegment(value: 'income', label: Text('Pemasukan')),
-              ],
-              selected: {_type},
-              onSelectionChanged: (s) => setState(() {
-                _type = s.first;
-                _categoryPicked = false;
-                _categoryId = guessCategoryId(_name.text, _type, widget.categories);
-              }),
+            FormRow(
+              icon: Icons.edit_outlined,
+              label: 'Nama',
+              focusNode: _nameFocus,
+              child: TextField(
+                controller: _name,
+                focusNode: _nameFocus,
+                autofocus: true,
+                onChanged: _onNameChanged,
+                style: fieldText,
+                decoration: bareField('contoh: Listrik PLN, Kos, Gaji'),
+              ),
             ),
-            TextField(
-              controller: _name,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Nama', hintText: 'contoh: Listrik PLN, Kos, Gaji'),
-              onChanged: _onNameChanged,
+            FormRow(
+              icon: Icons.payments_outlined,
+              label: 'Nominal',
+              focusNode: _amountFocus,
+              child: Row(
+                children: [
+                  Text('Rp ', style: fieldText.copyWith(color: c.inkMuted)),
+                  Expanded(
+                    child: TextField(
+                      controller: _amount,
+                      focusNode: _amountFocus,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: const [AmountInputFormatter()],
+                      style: fieldText,
+                      decoration: bareField('0'),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            TextField(
-              controller: _amount,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: const [AmountInputFormatter()],
-              decoration: const InputDecoration(labelText: 'Nominal', prefixText: 'Rp '),
+            FormRow(
+              icon: categoryIcon(category?['name'] as String?, _type, category?['icon'] as String?),
+              strong: true,
+              label: 'Kategori',
+              value: category?['name'] as String? ?? 'Pilih kategori',
+              badge: category != null && !_categoryPicked ? 'ditebak dari nama' : null,
+              onTap: () async {
+                final id = await chooseOne(context, 'Kategori', [
+                  for (final x in categories) (x['id'] as String, x['name'] as String, null),
+                ], _categoryId);
+                if (id != null) {
+                  setState(() {
+                    _categoryId = id;
+                    _categoryPicked = true;
+                  });
+                }
+              },
             ),
-            DropdownButtonFormField(
-              initialValue: _accountId,
-              decoration: const InputDecoration(labelText: 'Akun'),
-              items: [
-                for (final a in widget.accounts)
-                  DropdownMenuItem(value: a['id'] as String, child: Text(a['name'] as String)),
-              ],
-              onChanged: (v) => setState(() => _accountId = v!),
+            FormRow(
+              icon: Icons.account_balance_wallet_outlined,
+              label: income ? 'Masuk ke akun' : 'Dibayar dari akun',
+              value: widget.accounts.firstWhere((a) => a['id'] == _accountId)['name'] as String,
+              onTap: () async {
+                final id = await chooseOne(context, 'Akun', [
+                  for (final a in widget.accounts) (a['id'] as String, a['name'] as String, null),
+                ], _accountId);
+                if (id != null) setState(() => _accountId = id);
+              },
             ),
-            DropdownButtonFormField(
-              key: ValueKey('$_type/$_categoryId'),
-              initialValue: _categoryId,
-              decoration: const InputDecoration(labelText: 'Kategori'),
-              items: [
-                for (final c in categories)
-                  DropdownMenuItem(value: c['id'] as String, child: Text(c['name'] as String)),
-              ],
-              onChanged: (v) => setState(() {
-                _categoryId = v;
-                _categoryPicked = true;
-              }),
+          ],
+        ),
+        FormCard(
+          children: [
+            FormRow(
+              icon: Icons.repeat,
+              label: 'Berulang',
+              value: frequencyLabels[_frequency],
+              onTap: () async {
+                final f = await chooseOne(context, 'Berulang', [
+                  for (final e in frequencyLabels.entries) (e.key, e.value, null),
+                ], _frequency);
+                if (f != null) setState(() => _frequency = f);
+              },
             ),
-            const SizedBox(height: 12),
-            SegmentedButton(
-              segments: [for (final e in frequencyLabels.entries) ButtonSegment(value: e.key, label: Text(e.value))],
-              selected: {_frequency},
-              onSelectionChanged: (s) => setState(() => _frequency = s.first),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.event),
-              title: const Text('Jatuh tempo berikutnya'),
-              subtitle: Text(DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_firstDue)),
+            FormRow(
+              icon: Icons.calendar_today_outlined,
+              label: 'Jatuh tempo berikutnya',
+              value: DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_firstDue),
               onTap: () async {
                 final picked = await showDatePicker(
                   context: context,
@@ -284,17 +338,20 @@ class _BillFormState extends State<BillForm> {
                 if (picked != null) setState(() => _firstDue = picked);
               },
             ),
-            DropdownButtonFormField(
-              initialValue: _remind,
-              decoration: InputDecoration(labelText: 'Ingatkan (pukul ${widget.reminderTime})'),
-              items: [for (final e in reminderLabels.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
-              onChanged: (v) => setState(() => _remind = v!),
+            FormRow(
+              icon: Icons.notifications_none,
+              label: 'Ingatkan, pukul ${widget.reminderTime}',
+              value: reminderLabels[_remind],
+              onTap: () async {
+                final r = await chooseOne(context, 'Ingatkan', [
+                  for (final e in reminderLabels.entries) (e.key, e.value, null),
+                ], _remind);
+                if (r != null) setState(() => _remind = r);
+              },
             ),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: _save, child: const Text('Simpan')),
           ],
         ),
-      ),
+      ],
     );
   }
 }

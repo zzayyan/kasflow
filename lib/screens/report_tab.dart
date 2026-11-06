@@ -131,31 +131,9 @@ class _ReportTabState extends State<ReportTab> {
   Future<void> _pickMonth() async {
     final now = DateTime.now();
     final months = [for (var i = 0; i < 24; i++) DateTime(now.year, now.month - i)];
-    final picked = await showModalBottomSheet<DateTime>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-                child: Text('Pilih bulan', style: AppText.heading),
-              ),
-              for (final m in months)
-                ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-                  title: Text(DateFormat('MMMM yyyy', 'id_ID').format(m), style: AppText.body),
-                  selected: m == _month,
-                  onTap: () => Navigator.pop(context, m),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
+    final picked = await chooseOne(context, 'Pilih bulan', [
+      for (final m in months) (m, DateFormat('MMMM yyyy', 'id_ID').format(m), null),
+    ], _month);
     if (picked != null) _showMonth(picked);
   }
 

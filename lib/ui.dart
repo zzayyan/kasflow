@@ -245,6 +245,204 @@ IconData categoryIcon(String? name, String type, [String? icon]) {
   return type == 'income' ? Icons.south_west : Icons.receipt_outlined;
 }
 
+/// A field without a box of its own, inside a [FormRow] or as a big amount: the row draws the frame.
+InputDecoration bareField(String hint) => InputDecoration(
+  hintText: hint,
+  filled: false,
+  isCollapsed: true,
+  contentPadding: EdgeInsets.zero, // the theme pads fields; these sit inside rows
+  border: InputBorder.none,
+  enabledBorder: InputBorder.none,
+  focusedBorder: InputBorder.none,
+);
+
+/// A list sheet to choose one option from: (value, name, trailing text). Null when dismissed.
+Future<T?> chooseOne<T>(BuildContext context, String title, List<(T, String, String?)> options, T? current) {
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    builder: (context) => SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: Text(title, style: AppText.heading),
+            ),
+            for (final (value, name, trailing) in options)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                title: Text(name, style: AppText.body),
+                trailing: trailing == null ? null : Text(trailing, style: AppText.label),
+                selected: value == current,
+                onTap: () => Navigator.pop(context, value),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// A form sheet: title, the [children] 18px apart (scrolling when the keyboard is up), and the
+/// [action] kept above the keyboard. Open it with isScrollControlled so it can grow.
+class FormSheet extends StatelessWidget {
+  const FormSheet({super.key, required this.title, required this.children, required this.action});
+
+  final String title;
+  final List<Widget> children;
+  final Widget action;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    child: SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 16),
+            child: Text(title, style: AppText.title.copyWith(fontSize: 20)),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (i, child) in children.indexed) ...[if (i > 0) const SizedBox(height: 18), child],
+                ],
+              ),
+            ),
+          ),
+          Padding(padding: const EdgeInsets.fromLTRB(AppSpace.page, 16, AppSpace.page, 12), child: action),
+        ],
+      ),
+    ),
+  );
+}
+
+/// The form card (Catat artboard): [FormRow]s on the surface, split by inset dividers.
+class FormCard extends StatelessWidget {
+  const FormCard({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: AppColors.of(context).surface,
+    borderRadius: BorderRadius.circular(AppRadius.card),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: [
+        for (final (i, child) in children.indexed) ...[
+          if (i > 0) const Divider(indent: 16, endIndent: 16),
+          child,
+        ],
+      ],
+    ),
+  );
+}
+
+/// One line of a [FormCard]: an icon, a small label, and either a value to tap or a [child] field.
+/// With [focusNode] (the child field's), a tap anywhere on the row puts the cursor in the field.
+class FormRow extends StatelessWidget {
+  const FormRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.value,
+    this.child,
+    this.focusNode,
+    this.trailing,
+    this.badge,
+    this.onTap,
+    this.strong = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? value;
+  final Widget? child;
+  final FocusNode? focusNode;
+  final String? trailing;
+  final String? badge;
+  final VoidCallback? onTap;
+  final bool strong; // the dark icon circle, for the row that decides the most (category, target)
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return InkWell(
+      onTap: onTap ?? focusNode?.requestFocus,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 64),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: strong ? c.hero : c.surfaceMuted, shape: BoxShape.circle),
+                child: Icon(icon, size: 18, color: strong ? c.onHero : c.ink),
+              ),
+              const SizedBox(width: AppSpace.gap),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // The badge sits beside the small label, so a long value keeps the full width.
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            label,
+                            style: AppText.caption.copyWith(color: c.inkMuted),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (badge != null)
+                          Container(
+                            margin: const EdgeInsets.only(left: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                            decoration: BoxDecoration(color: c.primarySoft, borderRadius: BorderRadius.circular(10)),
+                            child: Text(badge!, style: AppText.caption.copyWith(fontSize: 11, color: c.primary)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    child ??
+                        Text(
+                          value ?? '',
+                          style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                  ],
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 8),
+                Text(trailing!, style: AppText.label.copyWith(color: c.inkMuted)),
+              ],
+              if (onTap != null) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_right, size: 18, color: c.inkMuted),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// One choice out of a few, as one pill track (Keluar / Masuk / Transfer).
 class PillSwitch<T> extends StatelessWidget {
   const PillSwitch({super.key, required this.options, required this.value, required this.onChanged, this.fontSize = 15});
