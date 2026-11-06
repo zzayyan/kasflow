@@ -25,7 +25,7 @@ The owner's skills live in `~/.agents/skills/<name>/SKILL.md`; Claude Code also 
 - `resolving-merge-conflicts`: a merge or rebase stopped on conflicts.
 - `grilling`: the owner wants a plan stress-tested.
 - `writing-for-agents`: editing this file, a skill, or another doc agents read.
-- `handoff`: the owner says "handoff". Save to `.agents/HANDOFF.md` (see Handoff), in place of the OS temp folder.
+- `handoff`: the owner says "handoff". It runs only when the owner invokes it, so an agent's skill list may leave it out; follow the Handoff section either way, saving to `.agents/HANDOFF.md` in place of the OS temp folder.
 
 For a library or SDK question (Flutter, PowerSync, Supabase), look up current docs, through context7 where available, before answering from memory.
 
