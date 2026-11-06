@@ -9,9 +9,9 @@ This file is the single source of truth for every coding agent on this repo (Cla
 
 ## Design
 
-- The source of truth for UI is the owner's Claude Design canvas "Cashflow UI/UX" (https://claude.ai/artifact/GPENb6juXJgm5LJgogX4Xd, direction E "hijau hutan"). Before you build or change a screen, read the matching artboard and copy its layout closely. The owner notices drift, such as a moved + button.
-- Tokens live in `lib/theme.dart` (`AppColors`, `AppText`, `AppRadius`, `AppSpace`) and match the canvas's "Token desain" artboard.
-- Two agreed deviations from the canvas: the category donut uses five distinct validated hues plus gray, and the light "need" color is `#4F8A66`. The canvas still shows the old chart colors, so keep the code's values.
+- The screens in `lib/screens/` implement every artboard of the owner's design, and `lib/theme.dart` holds its tokens (`AppColors`, `AppText`, `AppRadius`, `AppSpace`). To build or change UI, match the existing screens and use these tokens. The owner notices drift, such as a moved + button.
+- A screen with no counterpart in the code needs its design first: ask the owner for a screenshot of the artboard.
+- The design itself lives in a Claude Design canvas, "Cashflow UI/UX" (https://claude.ai/artifact/GPENb6juXJgm5LJgogX4Xd, direction E "hijau hutan"). Only Claude can open it, through its Artifact tool. The canvas still shows old chart colors; the code's values are the agreed ones (five distinct validated hues plus gray for the category donut, light "need" color `#4F8A66`).
 - UI copy is Indonesian. Code, comments, and commit messages are English.
 
 ## Device builds
