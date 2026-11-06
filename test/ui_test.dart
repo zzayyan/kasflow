@@ -77,4 +77,11 @@ void main() {
     expect(find.text('Batalkan'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
+
+  test('percentOf keeps a tiny share visible', () {
+    expect(percentOf(1, 1000), '<1%');
+    expect(percentOf(0, 1000), '0%');
+    expect(percentOf(5, 1000), '1%');
+    expect(percentOf(1, 0), '0%');
+  });
 }

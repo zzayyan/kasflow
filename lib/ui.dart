@@ -256,6 +256,19 @@ InputDecoration bareField(String hint) => InputDecoration(
   focusedBorder: InputBorder.none,
 );
 
+/// The heading of a menu or list sheet, under its drag handle.
+class SheetTitle extends StatelessWidget {
+  const SheetTitle(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 8),
+    child: Text(text, style: AppText.heading),
+  );
+}
+
 /// A list sheet to choose one option from: (value, name, trailing text). Null when dismissed.
 Future<T?> chooseOne<T>(BuildContext context, String title, List<(T, String, String?)> options, T? current) {
   return showModalBottomSheet<T>(
@@ -267,15 +280,15 @@ Future<T?> chooseOne<T>(BuildContext context, String title, List<(T, String, Str
         child: ListView(
           shrinkWrap: true,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-              child: Text(title, style: AppText.heading),
-            ),
+            SheetTitle(title),
             for (final (value, name, trailing) in options)
               ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 24),
                 title: Text(name, style: AppText.body),
-                trailing: trailing == null ? null : Text(trailing, style: AppText.label),
+                trailing: trailing != null
+                    ? Text(trailing, style: AppText.label)
+                    : value == current
+                    ? const Icon(Icons.check)
+                    : null,
                 selected: value == current,
                 onTap: () => Navigator.pop(context, value),
               ),
@@ -770,4 +783,9 @@ const needLevelLabels = {'must': 'Wajib', 'need': 'Butuh', 'want': 'Ingin', null
 
 String utcIso(DateTime local) => local.toUtc().toIso8601String();
 
-String percentOf(int part, int whole) => whole == 0 ? '0%' : '${(part * 100 / whole).round()}%';
+/// A share as a whole percent; a part too small to round up still shows, as "<1%".
+String percentOf(int part, int whole) {
+  if (whole == 0) return '0%';
+  final p = (part * 100 / whole).round();
+  return p == 0 && part != 0 ? '<1%' : '$p%';
+}

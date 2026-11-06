@@ -426,6 +426,7 @@ ThemeData buildAppTheme(Brightness brightness) {
     listTileTheme: ListTileThemeData(
       iconColor: c.ink,
       minTileHeight: AppSpace.rowMin, // textColor would override the muted subtitle below
+      contentPadding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
       // Menu sheets: a medium title over a quieter line that explains it.
       titleTextStyle: AppText.body.copyWith(fontWeight: FontWeight.w500, color: c.ink),
       subtitleTextStyle: AppText.label.copyWith(color: c.inkMuted),

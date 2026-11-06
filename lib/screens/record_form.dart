@@ -508,7 +508,8 @@ class _RecordFormState extends State<RecordForm> {
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             inputFormatters: const [AmountInputFormatter()],
                             style: AppText.amountXl.copyWith(color: c.ink),
-                            decoration: bareField('0'),
+                            // The hint takes the digits' size, not the theme's body text.
+                            decoration: bareField('0').copyWith(hintStyle: AppText.amountXl.copyWith(color: c.inkMuted)),
                           ),
                         ),
                       ),

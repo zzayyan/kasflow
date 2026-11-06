@@ -138,10 +138,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-              child: Text('Jatah harian dari budget', style: AppText.heading),
-            ),
+            const SheetTitle('Jatah harian dari budget'),
             for (final b in _budgets)
               ListTile(
                 title: Text(b.row['name'] as String),

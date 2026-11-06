@@ -171,7 +171,9 @@ Future<void> showPlanChooser(BuildContext context) async {
     builder: (context) => SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SheetTitle('Tambah rencana'),
           ListTile(
             leading: const Icon(Icons.event_repeat),
             title: const Text('Tagihan rutin baru'),
@@ -653,10 +655,7 @@ class _BudgetCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-              child: Text(b.row['name'] as String, style: AppText.heading),
-            ),
+            SheetTitle(b.row['name'] as String),
             ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('Ubah budget'),
@@ -724,11 +723,11 @@ class _BudgetCard extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 24),
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
+              padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 4),
               child: Text(b.row['name'] as String, style: AppText.heading),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 8),
               child: Text(
                 '${rows.length} transaksi · ${formatAmount(b.spent)} dari ${formatAmount(b.row['amount'] as int)}',
                 style: AppText.label.copyWith(color: c.inkMuted),

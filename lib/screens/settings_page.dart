@@ -100,7 +100,9 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const SheetTitle('Tema'),
             for (final MapEntry(key: mode, value: name) in _themeNames.entries)
               ListTile(
                 title: Text(name),
