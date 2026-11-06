@@ -207,7 +207,10 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                 children: [
                   _Header(
                     isNew: isNew,
-                    onAvatar: () => showProfileSheet(context),
+                    onAvatar: () async {
+                      await showProfileSheet(context);
+                      _set(() {}); // the name may have changed there
+                    },
                     onSettings: () => Navigator.push(
                       context,
                       MaterialPageRoute<void>(builder: (_) => const SettingsPage()),

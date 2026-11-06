@@ -264,6 +264,38 @@ class _ProfileSheetState extends State<_ProfileSheet> {
     super.dispose();
   }
 
+  /// The name on Beranda and here, kept with the account so it follows the user to another phone.
+  Future<void> _rename() async {
+    final controller = TextEditingController(text: userDisplayName());
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Nama panggilan'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 30,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(hintText: 'contoh: Zayyan', counterText: ''),
+          onSubmitted: (v) => Navigator.pop(context, v.trim()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Simpan')),
+        ],
+      ),
+    );
+    // The controller is left to the GC: the dialog still uses it while it animates out.
+    if (name == null || name == userDisplayName() || !mounted) return;
+    if (name.isEmpty) return showMessage(context, 'Nama tidak boleh kosong.');
+    if (!await setUserDisplayName(name)) {
+      if (mounted) showMessage(context, 'Butuh internet untuk ganti nama. Coba lagi saat online.');
+      return;
+    }
+    haptic(Haptic.click);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _logout() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -309,12 +341,26 @@ class _ProfileSheetState extends State<_ProfileSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            Text(
-              name,
-              textAlign: TextAlign.center,
-              style: AppText.heading.copyWith(fontSize: 20),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            // The pencil sits on the right of a centered name; the empty box on the left balances it.
+            Row(
+              children: [
+                const SizedBox(width: 40),
+                Expanded(
+                  child: Text(
+                    name,
+                    textAlign: TextAlign.center,
+                    style: AppText.heading.copyWith(fontSize: 20),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Ganti nama',
+                  onPressed: _rename,
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(Icons.edit_outlined, size: 18, color: c.inkMuted),
+                ),
+              ],
             ),
             const SizedBox(height: 2),
             Text(

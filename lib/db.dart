@@ -125,6 +125,18 @@ String userDisplayName() {
   return name.isEmpty ? 'Kamu' : name[0].toUpperCase() + name.substring(1);
 }
 
+/// Saves [name] as the account's name (auth `user_metadata.name`, also read when matching a bank
+/// notification to the user's own transfers). Needs the internet; false when it could not save.
+Future<bool> setUserDisplayName(String name) async {
+  try {
+    await supabase.auth.updateUser(UserAttributes(data: {'name': name})).timeout(const Duration(seconds: 15));
+    return true;
+  } on Exception catch (e) {
+    _log.warning('could not save the name', e);
+    return false;
+  }
+}
+
 /// This phone's preferences (the local-only `prefs` table), e.g. 'hide_balance' -> '1'.
 Future<String?> getPref(String key) async =>
     (await db.getOptional('SELECT value FROM prefs WHERE id = ?', [key]))?['value'] as String?;
