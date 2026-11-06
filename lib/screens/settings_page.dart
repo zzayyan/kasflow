@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:powersync/powersync.dart' show SyncStatus;
+import 'package:share_plus/share_plus.dart';
 
+import '../app_lock.dart';
 import '../db.dart';
+import '../export_csv.dart';
 import '../notifications.dart';
 import '../recurrence.dart';
 import '../theme.dart';
@@ -77,6 +81,41 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) unawaited(_refreshNotifications());
+  }
+
+  /// Turning the lock on or off asks for the fingerprint first, so nobody else can drop it.
+  Future<void> _setLock(bool on) async {
+    final ok = await confirmOwner(on ? 'Nyalakan kunci Cashflow' : 'Matikan kunci Cashflow');
+    if (ok == null && mounted) showMessage(context, 'Pasang sidik jari atau kunci layar di pengaturan HP dulu.');
+    if (ok != true) return; // cancelled: nothing to say
+    haptic(Haptic.click);
+    _set(() => appLockOn.value = on);
+    await setPref('app_lock', on ? '1' : '0');
+  }
+
+  /// Every confirmed record as a CSV, handed to Android's share sheet (Drive, WhatsApp, Files...).
+  Future<void> _export() async {
+    final rows = await db.getAll('''
+      SELECT r.occurred_at, r.type, r.amount, r.currency, a.name AS account, t.name AS target,
+        c.name AS category, r.note,
+        (SELECT group_concat('#' || l.name, ' ') FROM json_each(r.label_ids) j JOIN labels l ON l.id = j.value)
+          AS labels
+      FROM records r
+      LEFT JOIN accounts a ON a.id = r.account_id
+      LEFT JOIN accounts t ON t.id = r.transfer_account_id
+      LEFT JOIN categories c ON c.id = r.category_id
+      WHERE r.status = 'confirmed'
+      ORDER BY julianday(r.occurred_at)''');
+    if (!mounted) return;
+    if (rows.isEmpty) return showMessage(context, 'Belum ada transaksi untuk diekspor.');
+    final name = 'cashflow-transaksi-${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv';
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile.fromData(utf8.encode(recordsCsv(rows)), mimeType: 'text/csv')],
+        fileNameOverrides: [name],
+        subject: name,
+      ),
+    );
   }
 
   void _open(Widget page) => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => page));
@@ -166,6 +205,7 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                     ),
               onTap: openNotificationAccessSettings,
             ),
+            _Item(Icons.ios_share, 'Ekspor transaksi', onTap: _export),
           ]),
           const SizedBox(height: AppSpace.section),
           _Group('Tampilan dan pengingat', [
@@ -186,6 +226,13 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                     unawaited(setPref('hide_balance', on ? '1' : '0'));
                   },
                 ),
+              ),
+            ),
+            MergeSemantics(
+              child: _Item(
+                Icons.fingerprint,
+                'Kunci dengan sidik jari',
+                trailing: Switch(value: appLockOn.value, onChanged: _setLock),
               ),
             ),
             MergeSemantics(

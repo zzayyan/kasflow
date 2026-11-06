@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'app_lock.dart';
 import 'db.dart';
 import 'screens/home_page.dart';
 import 'screens/onboarding.dart';
@@ -46,6 +47,7 @@ Future<void> main() async {
   await openDatabase();
   themeMode.value = themeModeFromPref(await getPref('theme'));
   hapticsOn.value = await getPref('haptics') != '0';
+  appLockOn.value = await getPref('app_lock') == '1';
   runApp(const App());
 }
 
@@ -61,6 +63,8 @@ class App extends StatelessWidget {
         theme: buildAppTheme(Brightness.light),
         darkTheme: buildAppTheme(Brightness.dark),
         themeMode: mode,
+        // Above the Navigator, so the lock covers every page, sheet and dialog.
+        builder: (context, child) => AppLock(child: child!),
         home: StreamBuilder<AuthState>(
           stream: supabase.auth.onAuthStateChange,
           builder: (context, _) => supabase.auth.currentSession == null ? const WelcomePage() : const HomePage(),

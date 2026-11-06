@@ -13,12 +13,13 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import org.json.JSONArray
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.android.FlutterView
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+// A FragmentActivity: local_auth shows the fingerprint prompt as a fragment (lib/app_lock.dart).
+class MainActivity : FlutterFragmentActivity() {
     private var channel: MethodChannel? = null
     // Started from the widget's + or the "Catat cepat" shortcut; lib/home_widget.dart takes it once.
     private var quickInput = false
