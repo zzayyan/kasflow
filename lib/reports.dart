@@ -92,20 +92,27 @@ MonthReport buildMonthReport(List<Map<String, dynamic>> rows) {
   );
 }
 
-/// The [keep] largest of [ranked] (largest first) and one "Lainnya" for the rest, so a chart never
-/// needs more colors than it has. Nothing is folded when only one would be left over.
-List<CategoryTotal> foldSmallest(List<CategoryTotal> ranked, int keep) {
-  if (ranked.length <= keep + 1) return ranked;
-  final rest = ranked.skip(keep);
-  return [
-    ...ranked.take(keep),
-    CategoryTotal(
-      null,
-      'Lainnya',
-      rest.fold<int>(0, (sum, c) => sum + c.amount),
-      rest.fold<int>(0, (sum, c) => sum + c.previous),
-    ),
-  ];
+/// The categories that own the chart hues: the first [count] of [type] in [rows] (`type`,
+/// `category_id`, largest total first), so a category keeps its color from month to month.
+List<String?> topCategories(List<Map<String, dynamic>> rows, String type, int count) =>
+    [for (final r in rows) if (r['type'] == type) r['category_id'] as String?].take(count).toList();
+
+/// The category chart for one month ([month] largest first). Each category of [top] stays itself
+/// and keeps its hue; the rest fold into one gray "Lainnya" at the end, or stay themselves when
+/// only one is left over. [rest] lists what that last gray part holds; empty when none.
+({List<CategoryTotal> parts, List<CategoryTotal> rest}) chartParts(List<CategoryTotal> month, List<String?> top) {
+  final kept = [for (final c in month) if (top.contains(c.id)) c];
+  final rest = [for (final c in month) if (!top.contains(c.id)) c];
+  if (rest.isEmpty) return (parts: kept, rest: rest);
+  final gray = rest.length == 1
+      ? rest.single
+      : CategoryTotal(
+          null,
+          'Lainnya',
+          rest.fold<int>(0, (sum, c) => sum + c.amount),
+          rest.fold<int>(0, (sum, c) => sum + c.previous),
+        );
+  return (parts: [...kept, gray], rest: rest);
 }
 
 /// Totals of [type] for the [count] months ending with [lastMonth], oldest first. [rows] hold

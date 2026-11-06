@@ -34,17 +34,26 @@ void main() {
     expect(r.incomeCategories.map((c) => (c.name, c.amount)), [('Gaji', 500)]);
   });
 
-  test('foldSmallest keeps the largest and sums the rest into Lainnya', () {
-    final ranked = [for (final (i, a) in [60, 50, 40, 30, 20, 10, 5].indexed) CategoryTotal('$i', 'c$i', a)];
-    expect(foldSmallest(ranked, 5).map((c) => (c.name, c.amount)), [
-      ('c0', 60), ('c1', 50), ('c2', 40), ('c3', 30), ('c4', 20), ('Lainnya', 15), //
-    ]);
-    expect(foldSmallest(ranked.take(6).toList(), 5).length, 6); // one left over stays itself
+  test('chartParts keeps the top categories and folds the rest into Lainnya', () {
+    final month = [for (final (i, a) in [60, 50, 40, 30, 20].indexed) CategoryTotal('c$i', 'c$i', a, i)];
+    final (:parts, :rest) = chartParts(month, ['c4', 'c1', 'c9']); // c9: a top category absent this month
+    expect(parts.map((c) => (c.name, c.amount)), [('c1', 50), ('c4', 20), ('Lainnya', 130)]);
+    expect(parts.last.previous, 0 + 2 + 3);
+    expect(rest.map((c) => c.id), ['c0', 'c2', 'c3']);
+    // One left over stays itself (still gray), and nothing left over adds no gray part.
+    expect(chartParts(month, ['c0', 'c1', 'c2', 'c3']).parts.last.name, 'c4');
+    expect(chartParts(month, ['c0', 'c1', 'c2', 'c3', 'c4']).rest, isEmpty);
   });
 
-  test('foldSmallest sums last month too, for the picked part\'s change', () {
-    final ranked = [for (final (i, a) in [60, 50, 40, 30, 20, 10, 5].indexed) CategoryTotal('$i', 'c$i', a, i)];
-    expect(foldSmallest(ranked, 5).last.previous, 5 + 6); // c5 and c6
+  test('topCategories takes the first of one type', () {
+    final rows = [
+      {'type': 'expense', 'category_id': 'a'},
+      {'type': 'income', 'category_id': 'g'},
+      {'type': 'expense', 'category_id': null},
+      {'type': 'expense', 'category_id': 'b'},
+    ];
+    expect(topCategories(rows, 'expense', 2), ['a', null]);
+    expect(topCategories(rows, 'income', 5), ['g']);
   });
 
   test('monthTotals buckets by local month, oldest first', () {

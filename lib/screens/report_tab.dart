@@ -58,6 +58,7 @@ class _ReportTabState extends State<ReportTab> {
   MonthReport? _report;
   List<Map<String, dynamic>> _trendRows = const [];
   List<Map<String, dynamic>> _labels = const [];
+  List<Map<String, dynamic>>? _yearRows; // the last 12 months by category, largest first: who owns the hues
   List<BudgetView>? _budgets;
   final _subs = <StreamSubscription<void>>[];
   final _monthSubs = <StreamSubscription<void>>[];
@@ -107,6 +108,20 @@ class _ReportTabState extends State<ReportTab> {
         });
       }),
       watchBudgets().listen((rows) => _set(() => _budgets = rows)),
+      // From now, not from the chosen month, so browsing months never moves a color. No label
+      // filter either, for the same reason.
+      db
+          .watch(
+            '''
+            SELECT r.type, r.category_id, SUM(r.amount) AS total
+            FROM records r JOIN accounts a ON a.id = r.account_id
+            WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND r.type IN ('income', 'expense')
+              AND julianday(r.occurred_at) >= julianday(?1)
+            GROUP BY r.type, r.category_id
+            ORDER BY total DESC''',
+            parameters: [utcIso(DateTime(DateTime.now().year - 1, DateTime.now().month + 1))],
+          )
+          .listen((rows) => _set(() => _yearRows = rows)),
     ]);
     _watchMonth();
   }
@@ -208,6 +223,7 @@ class _ReportTabState extends State<ReportTab> {
             const SizedBox(height: 16),
             _CategoryCard(
               categories: income ? r.incomeCategories : r.categories,
+              yearTotals: _yearRows,
               total: income ? r.income : r.expense,
               caption: income ? 'Total masuk' : 'Total keluar',
               chartLabel: '${income ? 'Pemasukan' : 'Pengeluaran'} $monthName per kategori',
@@ -322,9 +338,11 @@ class _CategoryCard extends StatefulWidget {
     required this.onLabel,
     required this.month,
     required this.type,
+    required this.yearTotals,
   });
 
   final List<CategoryTotal> categories; // largest first
+  final List<Map<String, dynamic>>? yearTotals; // the last 12 months by category: who owns the hues; null while loading
   final int total;
   final String caption;
   final String chartLabel;
@@ -356,9 +374,11 @@ class _CategoryCardState extends State<_CategoryCard> {
     setState(() => _picked = i == _picked ? null : i);
   }
 
+  List<CategoryTotal> _rest = const []; // what the last, gray part holds (set by build)
+
   /// The categories inside part [i]: itself, or every folded one for the gray "Lainnya".
   List<CategoryTotal> _members(List<CategoryTotal> parts, int i) =>
-      parts.length != widget.categories.length && i == parts.length - 1 ? widget.categories.sublist(i) : [parts[i]];
+      _rest.isNotEmpty && i == parts.length - 1 ? _rest : [parts[i]];
 
   /// A tap on the ring picks its part; a tap in the hole, once a part is picked, lists its records.
   void _tapRing(Offset at, List<CategoryTotal> parts) {
@@ -404,11 +424,18 @@ class _CategoryCardState extends State<_CategoryCard> {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    // Five hues and a gray for the rest. ponytail: colors follow rank within this month, so a
-    // category can change color between months; stable colors need a slot per category.
-    final parts = foldSmallest(widget.categories, c.chart.length);
-    // Past the five hues (the folded rest, or a sixth part left unfolded) comes the gray.
-    final colors = [for (var i = 0; i < parts.length; i++) i < c.chart.length ? c.chart[i] : c.chartOther];
+    // Five hues for the five biggest categories of the last 12 months, each always the same one;
+    // every other category is gray. Until the year loads, this month's five stand in.
+    final year = widget.yearTotals;
+    final top = year != null
+        ? topCategories(year, widget.type, c.chart.length)
+        : [for (final x in widget.categories.take(c.chart.length)) x.id];
+    final (:parts, :rest) = chartParts(widget.categories, top);
+    _rest = rest;
+    final colors = [
+      for (final (i, p) in parts.indexed)
+        rest.isNotEmpty && i == parts.length - 1 ? c.chartOther : c.chart[top.indexOf(p.id)],
+    ];
     final picked = _picked != null && _picked! < parts.length ? _picked : null;
     final half = (parts.length / 2).ceil();
     final labelName = widget.labels.where((l) => l['id'] == widget.labelId).firstOrNull?['name'];
