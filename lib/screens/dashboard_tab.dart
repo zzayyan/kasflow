@@ -210,7 +210,8 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                 children: [
                   _Header(
                     isNew: isNew,
-                    onAvatar: () => Navigator.push(
+                    onAvatar: () => showProfileSheet(context),
+                    onSettings: () => Navigator.push(
                       context,
                       MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
                     ),
@@ -222,7 +223,6 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                     caption: isNew ? 'Total saldo · $accountCount akun' : 'Total saldo',
                     hidden: _hidden,
                     onToggleHidden: isNew ? null : () => setState(() => _hidden = !_hidden),
-                    onReport: isNew ? null : () => widget.onOpenTab(3),
                     allowance: isNew
                         ? null
                         : _AllowancePanel(budget: _budget, hidden: _hidden, onTap: _pickBudget),
@@ -265,16 +265,17 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
 // ---------------------------------------------------------------- header
 
 class _Header extends StatelessWidget {
-  const _Header({required this.isNew, required this.onAvatar});
+  const _Header({required this.isNew, required this.onAvatar, required this.onSettings});
 
   final bool isNew;
-  final VoidCallback onAvatar; // opens Pengaturan
+  final VoidCallback onAvatar; // opens Profil
+  final VoidCallback onSettings; // the gear: opens Pengaturan
 
   static String _greeting(int hour) => switch (hour) {
-    >= 4 && < 10 => 'Selamat pagi',
-    >= 10 && < 15 => 'Selamat siang',
-    >= 15 && < 18 => 'Selamat sore',
-    _ => 'Selamat malam',
+    >= 4 && < 10 => 'Pagi',
+    >= 10 && < 15 => 'Siang',
+    >= 15 && < 18 => 'Sore',
+    _ => 'Malam',
   };
 
   @override
@@ -285,7 +286,7 @@ class _Header extends StatelessWidget {
     return Row(
       children: [
         IconButton(
-          tooltip: 'Pengaturan',
+          tooltip: 'Profil',
           onPressed: onAvatar,
           style: IconButton.styleFrom(backgroundColor: c.hero, fixedSize: const Size.square(46)),
           icon: Text(name[0], style: AppText.heading.copyWith(fontSize: 18, color: c.onHero)),
@@ -309,7 +310,12 @@ class _Header extends StatelessWidget {
             ],
           ),
         ),
-        const _SyncButton(),
+        IconButton(
+          tooltip: 'Pengaturan',
+          onPressed: onSettings,
+          style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
+          icon: Icon(Icons.settings_outlined, size: 22, color: c.ink),
+        ),
       ],
     );
   }
@@ -317,7 +323,8 @@ class _Header extends StatelessWidget {
 
 /// Where this phone's data stands with the server, as an icon that follows the sync state: a cloud
 /// with a check when everything is up, turning arrows while syncing, a crossed-out cloud offline.
-/// Changes waiting to upload show as a count. Tap for the state in words.
+/// Changes waiting to upload show as a count. Sits on the balance card; a tap syncs now and says
+/// the state in words.
 class _SyncButton extends StatefulWidget {
   const _SyncButton();
 
@@ -366,20 +373,20 @@ class _SyncButtonState extends State<_SyncButton> with SingleTickerProviderState
     final waiting = _pending == 1 ? '1 perubahan menunggu' : '$_pending perubahan menunggu';
     final last = _status.lastSyncedAt?.toLocal();
     final (key, icon, color, label) = _busy
-        ? ('busy', Icons.sync, c.primary, 'Menyinkronkan')
+        ? ('busy', Icons.sync, c.onHeroChip, 'Menyinkronkan')
         : !_status.connected
         ? (
             'offline',
             Icons.cloud_off_outlined,
-            c.inkMuted,
+            c.onHeroMuted,
             _pending > 0 ? 'Offline, $waiting. Datanya aman di HP ini.' : 'Offline. Datanya aman di HP ini.',
           )
         : _pending > 0
-        ? ('waiting', Icons.cloud_upload_outlined, c.ink, 'Tersambung, $waiting')
+        ? ('waiting', Icons.cloud_upload_outlined, c.onHero, 'Tersambung, $waiting')
         : (
             'done',
             Icons.cloud_done_outlined,
-            c.primary,
+            c.onHeroChip,
             last == null ? 'Semua data tersinkron' : 'Semua data tersinkron · ${DateFormat('HH.mm').format(last)}',
           );
     Widget glyph = Icon(icon, size: 22, color: color);
@@ -389,18 +396,11 @@ class _SyncButtonState extends State<_SyncButton> with SingleTickerProviderState
     return IconButton(
       tooltip: label,
       onPressed: () {
+        if (!_busy) unawaited(reconnect()); // sync now
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(label),
-              action: key == 'offline' || key == 'waiting'
-                  ? SnackBarAction(label: 'Coba lagi', onPressed: () => unawaited(reconnect()))
-                  : null,
-            ),
-          );
+          ..showSnackBar(SnackBar(content: Text(label)));
       },
-      style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
       icon: Badge(
         isLabelVisible: _pending > 0 && !_busy,
         backgroundColor: c.alert,
@@ -425,7 +425,6 @@ class _BalanceCard extends StatelessWidget {
     required this.caption,
     required this.hidden,
     required this.onToggleHidden,
-    required this.onReport,
     this.allowance,
   });
 
@@ -435,7 +434,6 @@ class _BalanceCard extends StatelessWidget {
   final String caption;
   final bool hidden;
   final VoidCallback? onToggleHidden; // null hides the eye button
-  final VoidCallback? onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -475,12 +473,7 @@ class _BalanceCard extends StatelessWidget {
                   ),
                 ),
               const Spacer(),
-              if (onReport != null)
-                IconButton(
-                  tooltip: 'Buka laporan',
-                  onPressed: onReport,
-                  icon: Icon(Icons.bar_chart, color: c.onHeroChip),
-                ),
+              const _SyncButton(),
             ],
           ),
           SizedBox(height: onToggleHidden == null ? 14 : 4),

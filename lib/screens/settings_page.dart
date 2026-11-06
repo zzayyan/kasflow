@@ -14,8 +14,9 @@ import 'bills_tab.dart';
 import 'categories_page.dart';
 import 'labels_page.dart';
 
-// Pengaturan, after the "E · Pengaturan" artboard: who is signed in, whether everything has
-// reached the server, the data lists, this phone's preferences, and logging out.
+// Pengaturan (gear on Beranda), after the "Usulan · Pengaturan" artboard: the data lists and this
+// phone's preferences. Profil (avatar on Beranda, "Usulan · Profil" artboard) holds who is signed
+// in, whether everything has reached the server, and logging out.
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -26,8 +27,6 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver {
   final _subs = <StreamSubscription<void>>[];
-  SyncStatus _status = db.currentStatus;
-  int _pending = 0; // changes on this phone not uploaded yet
   Map<String, dynamic>? _counts;
   bool? _notifications;
   bool _hideBalance = false;
@@ -35,11 +34,6 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
 
   void _set(VoidCallback change) {
     if (mounted) setState(change);
-  }
-
-  Future<void> _refreshPending() async {
-    final stats = await db.getUploadQueueStats();
-    _set(() => _pending = stats.count);
   }
 
   Future<void> _refreshNotifications() async {
@@ -52,10 +46,6 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _subs.addAll([
-      db.statusStream.listen((s) {
-        _set(() => _status = s);
-        unawaited(_refreshPending()); // the queue shrinks as uploads finish
-      }),
       db
           .watch('''
             SELECT (SELECT COUNT(*) FROM accounts WHERE archived = 0) AS accounts,
@@ -63,7 +53,6 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
               (SELECT COUNT(*) FROM labels) AS labels''')
           .listen((rows) => _set(() => _counts = rows.first)),
     ]);
-    unawaited(_refreshPending());
     unawaited(_refreshNotifications());
     unawaited(() async {
       final hide = await getPref('hide_balance');
@@ -130,69 +119,16 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
     await setPref('theme', picked.name);
   }
 
-  Future<void> _logout() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Keluar dari akun?'),
-        content: const Text('Data di HP ini dihapus. Semuanya tetap tersimpan di server dan kembali saat kamu masuk lagi.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Keluar')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    if (!await logout()) {
-      if (mounted) showMessage(context, 'Masih ada data yang belum tersinkron. Sambungkan internet dulu, lalu coba lagi.');
-      return;
-    }
-    await scheduleReminders(const []); // the next user on this phone must not get this user's bills
-    // The app's root swaps to the login page; drop this page from above it.
-    if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final name = userDisplayName();
-    final email = supabase.auth.currentUser?.email ?? '';
     final counts = _counts;
-    final synced = _pending == 0;
     String time((int, int) t) => '${t.$1.toString().padLeft(2, '0')}.${t.$2.toString().padLeft(2, '0')}';
     return Scaffold(
       appBar: pageAppBar(context, 'Pengaturan'),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(AppSpace.page, 8, AppSpace.page, 28),
         children: [
-          Padding(
-            padding: const EdgeInsets.all(4),
-            child: Row(
-              children: [
-                Container(
-                  width: 60,
-                  height: 60,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: c.hero, shape: BoxShape.circle),
-                  child: Text(name[0], style: AppText.title.copyWith(color: c.onHero)),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(name, style: AppText.heading.copyWith(fontSize: 19), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      const SizedBox(height: 2),
-                      Text(email, style: AppText.label.copyWith(color: c.inkMuted), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpace.section),
-          _SyncCard(status: _status, pending: _pending, onRetry: reconnect),
-          const SizedBox(height: AppSpace.section),
           _Group('Data', [
             _Item(
               Icons.account_balance_wallet_outlined,
@@ -263,29 +199,141 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
               trailing: Text('IDR', style: AppText.label.copyWith(color: c.inkMuted)),
             ),
           ]),
-          const SizedBox(height: AppSpace.section),
-          FilledButton.icon(
-            onPressed: synced ? _logout : null,
-            icon: const Icon(Icons.logout, size: 20),
-            label: const Text('Keluar'),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(54),
-              backgroundColor: c.surface,
-              foregroundColor: c.alert,
-              disabledBackgroundColor: c.surface,
-              disabledForegroundColor: c.inkMuted,
-              textStyle: AppText.bodyStrong,
-            ),
-          ),
-          if (!synced) ...[
-            const SizedBox(height: AppSpace.tight),
-            Text(
-              'Bisa keluar setelah semua data tersinkron, supaya tidak ada transaksi yang hilang.',
-              textAlign: TextAlign.center,
-              style: AppText.caption.copyWith(color: c.inkMuted, height: 1.4),
-            ),
-          ],
         ],
+      ),
+    );
+  }
+}
+
+/// Profil, the sheet behind the avatar on Beranda ("Usulan · Profil" artboard): who is signed in,
+/// whether everything has reached the server, and logging out.
+Future<void> showProfileSheet(BuildContext context) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  showDragHandle: true,
+  backgroundColor: AppColors.of(context).surface,
+  builder: (_) => const _ProfileSheet(),
+);
+
+class _ProfileSheet extends StatefulWidget {
+  const _ProfileSheet();
+
+  @override
+  State<_ProfileSheet> createState() => _ProfileSheetState();
+}
+
+class _ProfileSheetState extends State<_ProfileSheet> {
+  late final StreamSubscription<SyncStatus> _sub;
+  SyncStatus _status = db.currentStatus;
+  int _pending = 0; // changes on this phone not uploaded yet
+
+  Future<void> _refreshPending() async {
+    final stats = await db.getUploadQueueStats();
+    if (mounted) setState(() => _pending = stats.count);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = db.statusStream.listen((s) {
+      if (mounted) setState(() => _status = s);
+      unawaited(_refreshPending()); // the queue shrinks as uploads finish
+    });
+    unawaited(_refreshPending());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub.cancel());
+    super.dispose();
+  }
+
+  Future<void> _logout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Keluar dari akun?'),
+        content: const Text('Data di HP ini dihapus. Semuanya tetap tersimpan di server dan kembali saat kamu masuk lagi.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Keluar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!await logout()) {
+      if (mounted) showMessage(context, 'Masih ada data yang belum tersinkron. Sambungkan internet dulu, lalu coba lagi.');
+      return;
+    }
+    await scheduleReminders(const []); // the next user on this phone must not get this user's bills
+    // The app's root swaps to the login page; drop this sheet from above it.
+    if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final name = userDisplayName();
+    final email = supabase.auth.currentUser?.email ?? '';
+    final synced = _pending == 0;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 72,
+                height: 72,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: c.hero, shape: BoxShape.circle),
+                child: Text(name[0], style: AppText.title.copyWith(fontSize: 28, color: c.onHero)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              name,
+              textAlign: TextAlign.center,
+              style: AppText.heading.copyWith(fontSize: 20),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              email,
+              textAlign: TextAlign.center,
+              style: AppText.label.copyWith(color: c.inkMuted),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 18),
+            _SyncCard(status: _status, pending: _pending, onRetry: reconnect),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: synced ? _logout : null,
+              icon: const Icon(Icons.logout, size: 20),
+              label: const Text('Keluar'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(54),
+                backgroundColor: c.bg,
+                foregroundColor: c.alert,
+                disabledBackgroundColor: c.bg,
+                disabledForegroundColor: c.inkMuted,
+                textStyle: AppText.bodyStrong,
+              ),
+            ),
+            if (!synced) ...[
+              const SizedBox(height: AppSpace.tight),
+              Text(
+                'Bisa keluar setelah semua data tersinkron, supaya tidak ada transaksi yang hilang.',
+                textAlign: TextAlign.center,
+                style: AppText.caption.copyWith(color: c.inkMuted, height: 1.4),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

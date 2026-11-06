@@ -58,7 +58,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Every tab draws its own header, as in the design; Beranda's avatar opens Pengaturan.
+      // Every tab draws its own header, as in the design; Beranda's avatar opens Profil, its gear Pengaturan.
       body: switch (_tab) {
         0 => DashboardTab(onOpenTab: (i) => setState(() => _tab = i)),
         1 => const RecordsTab(),
