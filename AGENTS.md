@@ -13,7 +13,7 @@ This file is the single source of truth for every coding agent on this repo (Cla
 - A screen with no counterpart in the code needs its design first: ask the owner for a screenshot of the artboard.
 - The design itself lives in a Claude Design canvas, "Cashflow UI/UX" (https://claude.ai/artifact/GPENb6juXJgm5LJgogX4Xd, direction E "hijau hutan"). Only Claude can open it, through its Artifact tool. The canvas still shows old chart colors; the code's values are the agreed ones (five distinct validated hues plus gray for the category donut, light "need" color `#4F8A66`).
 - Forms follow the Catat transaksi artboard through shared pieces in `lib/ui.dart`: `FormSheet` for a form in a bottom sheet, `FormCard` and `FormRow` for its fields and pickers, `chooseOne` for a pick list, `SheetTitle` for a menu sheet. A row holding a text field passes the field's `focusNode`, so a tap anywhere on the row types into it.
-- Tap feedback goes through `haptic()` in `lib/ui.dart`. The owner keeps Android's system touch vibration off, which silences Flutter's `HapticFeedback`; `haptic()` plays on the vibrator through `MainActivity.kt`, behind the app's own "Getar saat mengetuk" toggle.
+- Tap feedback goes through `haptic()` in `lib/ui.dart`. The owner keeps Android's system touch vibration off, which silences Flutter's `HapticFeedback`; `haptic()` plays on the vibrator through `MainActivity.kt`, behind the app's own "Getar saat mengetuk" toggle. Every `onLongPress` starts with `haptic(Haptic.click)`, so a hold always answers before its menu or dialog opens.
 - Animation durations go through `motion()`, which turns them to zero when Android's "remove animations" setting is on.
 - UI copy is Indonesian. Code, comments, and commit messages are English.
 

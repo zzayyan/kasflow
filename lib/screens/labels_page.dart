@@ -362,7 +362,10 @@ class _LabelRow extends StatelessWidget {
         context,
         MaterialPageRoute<void>(builder: (_) => Scaffold(body: ReportTab(labelId: l['id'] as String))),
       ),
-      onLongPress: onOptions,
+      onLongPress: () {
+        haptic(Haptic.click);
+        onOptions();
+      },
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 64),
         child: Padding(

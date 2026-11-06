@@ -373,7 +373,10 @@ class _BillRow extends StatelessWidget {
     final action = income ? 'Terima' : 'Bayar';
     return InkWell(
       onTap: () => payBill(context, b),
-      onLongPress: () => billOptions(context, b),
+      onLongPress: () {
+        haptic(Haptic.click);
+        billOptions(context, b);
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -560,7 +563,10 @@ class _BudgetCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.card),
         onTap: () => _options(context),
-        onLongPress: () => _options(context),
+        onLongPress: () {
+          haptic(Haptic.click);
+          _options(context);
+        },
         child: Padding(
           padding: const EdgeInsets.all(AppSpace.card),
           child: Column(
@@ -831,7 +837,10 @@ class _GoalCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(AppRadius.card),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.card),
-        onLongPress: () => _options(context, paused),
+        onLongPress: () {
+          haptic(Haptic.click);
+          _options(context, paused);
+        },
         child: Padding(
           padding: const EdgeInsets.all(AppSpace.card),
           child: Column(

@@ -229,7 +229,10 @@ class RecordRow extends StatelessWidget {
     final (bg, fg) = type == 'income' ? (c.primarySoft, c.primary) : (c.surfaceMuted, c.ink);
     return InkWell(
       onTap: () => showRecordForm(context, prefill: Prefill.fromRecord(r)),
-      onLongPress: () => confirmDeleteRecord(context, r['id'] as String),
+      onLongPress: () {
+        haptic(Haptic.click); // a hold always answers with a tick before its menu or dialog
+        confirmDeleteRecord(context, r['id'] as String);
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
