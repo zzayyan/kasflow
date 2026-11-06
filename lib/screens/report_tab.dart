@@ -186,17 +186,7 @@ class _ReportTabState extends State<ReportTab> {
                 const SizedBox(width: 10),
               ],
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Laporan', style: AppText.title),
-                    if (!isCurrent)
-                      Text(
-                        DateFormat('MMMM yyyy', 'id_ID').format(_month),
-                        style: AppText.label.copyWith(color: c.inkMuted),
-                      ),
-                  ],
-                ),
+                child: Text('Laporan $monthName', style: AppText.title),
               ),
               IconButton(
                 tooltip: 'Pilih bulan',
@@ -231,9 +221,9 @@ class _ReportTabState extends State<ReportTab> {
           else ...[
             Row(
               children: [
-                Expanded(child: _Kpi('Masuk $monthName', r.income, color: c.income)),
+                Expanded(child: _Kpi('Masuk', r.income, color: c.income)),
                 const SizedBox(width: 10),
-                Expanded(child: _Kpi('Keluar $monthName', r.expense)),
+                Expanded(child: _Kpi('Keluar', r.expense)),
               ],
             ),
             const SizedBox(height: 16),
