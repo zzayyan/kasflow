@@ -25,6 +25,6 @@ This file is the single source of truth for every coding agent on this repo (Cla
 ## Git
 
 - `main` is linear and the only long-lived branch (GitHub: zzayyan/cashflow-app). Commit on a short feature branch.
-- Run `flutter analyze` and `flutter test` before committing.
+- Run `flutter analyze` and `flutter test` before committing. Run the Supabase tests (see `README.md`) only when `supabase/` changes.
 - When the owner approves, fast-forward main (`git merge --ff-only <branch>`), `git push origin main`, then delete the branch.
 - Commits and PRs carry the owner as the only author. Write the message without AI co-author trailers or "Generated with" lines.
