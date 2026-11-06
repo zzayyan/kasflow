@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../db.dart';
@@ -710,54 +711,12 @@ class _BudgetCard extends StatelessWidget {
       [utcIso(start), utcIso(end), b.row['category_ids'] ?? '[]', b.row['account_ids'] ?? '[]', b.row['label_ids'] ?? '[]'],
     );
     if (!context.mounted) return;
-    final c = AppColors.of(context);
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.7,
-        maxChildSize: 0.95,
-        builder: (context, scroll) => ListView(
-          controller: scroll,
-          padding: const EdgeInsets.only(bottom: 24),
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 4),
-              child: Text(b.row['name'] as String, style: AppText.heading),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 8),
-              child: Text(
-                '${rows.length} transaksi · ${formatAmount(b.spent)} dari ${formatAmount(b.row['amount'] as int)}',
-                style: AppText.label.copyWith(color: c.inkMuted),
-              ),
-            ),
-            if (rows.isEmpty)
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text('Belum ada pengeluaran di periode ini.', style: AppText.body.copyWith(color: c.inkMuted)),
-              ),
-            for (final r in rows)
-              ListTile(
-                title: Text(
-                  (r['note'] as String?)?.isNotEmpty == true ? r['note'] as String : r['category'] as String? ?? '-',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                // The category already titles a record without a note; don't repeat it.
-                subtitle: Text(
-                  [
-                    if ((r['note'] as String?)?.isNotEmpty == true) ?(r['category'] as String?),
-                    r['account'] as String,
-                    DateFormat('d MMM', 'id_ID').format(DateTime.parse(r['occurred_at'] as String).toLocal()),
-                  ].join(' · '),
-                ),
-                trailing: Text(formatAmount(r['amount'] as int), style: AppText.bodyStrong),
-              ),
-          ],
-        ),
-      ),
+    await showRecordsSheet(
+      context,
+      title: b.row['name'] as String,
+      summary: '${rows.length} transaksi · ${formatAmount(b.spent)} dari ${formatAmount(b.row['amount'] as int)}',
+      rows: rows,
+      emptyText: 'Belum ada pengeluaran di periode ini.',
     );
   }
 
@@ -1082,6 +1041,7 @@ class _GoalFormState extends State<GoalForm> {
         [currentUserId, name, target, accountId, _date == null ? null : dateOnly(_date!), now, now],
       );
     });
+    unawaited(HapticFeedback.lightImpact()); // saved
     if (mounted) Navigator.pop(context);
   }
 
@@ -1264,7 +1224,8 @@ class _BudgetFormState extends State<BudgetForm> {
         WHERE id = ?''',
         [name, _period, amount, jsonEncode([..._selected]), jsonEncode([..._labelIds]), now, b['id']],
       );
-      if (mounted) Navigator.pop(context);
+      unawaited(HapticFeedback.lightImpact()); // saved
+    if (mounted) Navigator.pop(context);
       return;
     }
     await db.execute(
@@ -1284,6 +1245,7 @@ class _BudgetFormState extends State<BudgetForm> {
         now,
       ],
     );
+    unawaited(HapticFeedback.lightImpact()); // saved
     if (mounted) Navigator.pop(context);
   }
 

@@ -208,6 +208,7 @@ class _BillFormState extends State<BillForm> {
     );
     // Android 13+ asks once; reminders are only shown after the user allows notifications.
     await _channel.invokeMethod('requestPostNotifications');
+    unawaited(HapticFeedback.lightImpact()); // saved
     if (mounted) Navigator.pop(context);
   }
 

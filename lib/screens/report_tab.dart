@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../db.dart';
@@ -214,6 +216,8 @@ class _ReportTabState extends State<ReportTab> {
               labels: _labels,
               labelId: _labelId,
               onLabel: _filter,
+              month: _month,
+              type: income ? 'income' : 'expense',
             ),
             if (!income && isCurrent && budgets != null && budgets.isNotEmpty) ...[
               const SizedBox(height: 16),
@@ -256,9 +260,9 @@ class _Kpi extends StatelessWidget {
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text(
-              formatAmount(amount),
-              style: AppText.amount.copyWith(fontSize: 18, color: color ?? c.ink),
+            child: CountUp(
+              amount,
+              builder: (v) => Text(formatAmount(v), style: AppText.amount.copyWith(fontSize: 18, color: color ?? c.ink)),
             ),
           ),
         ],
@@ -282,7 +286,7 @@ class _Card extends StatelessWidget {
 
 // ---------------------------------------------------------------- per category: donut + legend
 
-class _CategoryCard extends StatelessWidget {
+class _CategoryCard extends StatefulWidget {
   const _CategoryCard({
     required this.categories,
     required this.total,
@@ -292,6 +296,8 @@ class _CategoryCard extends StatelessWidget {
     required this.labels,
     required this.labelId,
     required this.onLabel,
+    required this.month,
+    required this.type,
   });
 
   final List<CategoryTotal> categories; // largest first
@@ -302,33 +308,197 @@ class _CategoryCard extends StatelessWidget {
   final List<Map<String, dynamic>> labels;
   final String? labelId;
   final ValueChanged<String?> onLabel;
+  final DateTime month;
+  final String type; // 'expense' | 'income'
+
+  @override
+  State<_CategoryCard> createState() => _CategoryCardState();
+}
+
+const _ringStroke = 24.0;
+
+class _CategoryCardState extends State<_CategoryCard> {
+  int? _picked; // the part shown in the middle of the ring; null shows the total
+
+  @override
+  void didUpdateWidget(_CategoryCard old) {
+    super.didUpdateWidget(old);
+    // Another month, view or label has other parts, so the pick would point at the wrong one.
+    if (old.type != widget.type || old.month != widget.month || old.labelId != widget.labelId) _picked = null;
+  }
+
+  void _pick(int i) {
+    HapticFeedback.selectionClick();
+    setState(() => _picked = i == _picked ? null : i);
+  }
+
+  /// The categories inside part [i]: itself, or every folded one for the gray "Lainnya".
+  List<CategoryTotal> _members(List<CategoryTotal> parts, int i) =>
+      parts.length != widget.categories.length && i == parts.length - 1 ? widget.categories.sublist(i) : [parts[i]];
+
+  /// A tap on the ring picks its part; a tap in the hole, once a part is picked, lists its records.
+  void _tapRing(Offset at, List<CategoryTotal> parts) {
+    const size = 200.0;
+    final d = at - const Offset(size / 2, size / 2);
+    final radius = size / 2 - 6 - _ringStroke / 2;
+    final r = d.distance;
+    if (r < radius - _ringStroke / 2 - 4) {
+      if (_picked case final i?) _showRecords(parts, i);
+      return;
+    }
+    if (r > radius + _ringStroke / 2 + 8) return;
+    var angle = math.atan2(d.dy, d.dx) + math.pi / 2; // clockwise from 12 o'clock
+    if (angle < 0) angle += 2 * math.pi;
+    final total = parts.fold<int>(0, (sum, p) => sum + p.amount);
+    var end = 0.0;
+    for (final (i, p) in parts.indexed) {
+      end += p.amount / total * 2 * math.pi;
+      if (angle < end) return _pick(i);
+    }
+  }
+
+  Future<void> _showRecords(List<CategoryTotal> parts, int i) async {
+    final members = _members(parts, i);
+    final (start, end) = periodRange('month', widget.month);
+    final rows = await db.getAll(
+      '''
+      SELECT r.amount, r.note, r.occurred_at, a.name AS account, c.name AS category
+      FROM records r
+      JOIN accounts a ON a.id = r.account_id
+      LEFT JOIN categories c ON c.id = r.category_id
+      WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND r.type = ?1
+        AND julianday(r.occurred_at) >= julianday(?2) AND julianday(r.occurred_at) < julianday(?3)
+        AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(r.label_ids) l WHERE l.value = ?4))
+        AND (r.category_id IN (SELECT value FROM json_each(?5)) OR (?6 = 1 AND r.category_id IS NULL))
+      ORDER BY julianday(r.occurred_at) DESC''',
+      [
+        widget.type,
+        utcIso(start),
+        utcIso(end),
+        widget.labelId,
+        jsonEncode([for (final m in members) ?m.id]),
+        members.any((m) => m.id == null) ? 1 : 0,
+      ],
+    );
+    if (!mounted) return;
+    final amount = parts[i].amount;
+    await showRecordsSheet(
+      context,
+      title: '${parts[i].name} · ${DateFormat('MMMM', 'id_ID').format(widget.month)}',
+      summary: '${rows.length} transaksi · ${formatAmount(amount)} · ${percentOf(amount, widget.total)} dari total',
+      rows: rows,
+      emptyText: 'Tidak ada transaksi.',
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     // Five hues and a gray for the rest. ponytail: colors follow rank within this month, so a
     // category can change color between months; stable colors need a slot per category.
-    final parts = foldSmallest(categories, c.chart.length);
+    final parts = foldSmallest(widget.categories, c.chart.length);
     // Past the five hues (the folded rest, or a sixth part left unfolded) comes the gray.
     final colors = [for (var i = 0; i < parts.length; i++) i < c.chart.length ? c.chart[i] : c.chartOther];
+    final picked = _picked != null && _picked! < parts.length ? _picked : null;
     final half = (parts.length / 2).ceil();
-    final labelName = labels.where((l) => l['id'] == labelId).firstOrNull?['name'];
+    final labelName = widget.labels.where((l) => l['id'] == widget.labelId).firstOrNull?['name'];
+    final fade = motion(context, const Duration(milliseconds: 180));
+
     Widget legend(int i) {
       final p = parts[i];
-      return Tooltip(
-        message: '${p.name}: ${formatAmount(p.amount)}',
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: Row(
-            children: [
-              Container(width: 10, height: 10, decoration: BoxDecoration(color: colors[i], shape: BoxShape.circle)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(p.name, style: AppText.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      return Semantics(
+        button: true,
+        selected: picked == i,
+        label: '${p.name}, ${formatAmount(p.amount)}, ${percentOf(p.amount, widget.total)}',
+        excludeSemantics: true,
+        onTap: () => _pick(i),
+        child: AnimatedOpacity(
+          duration: fade,
+          opacity: picked == null || picked == i ? 1 : 0.4,
+          child: InkWell(
+            onTap: () => _pick(i),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                children: [
+                  Container(width: 10, height: 10, decoration: BoxDecoration(color: colors[i], shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      p.name,
+                      style: AppText.label.copyWith(fontWeight: picked == i ? FontWeight.w600 : null),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Text(percentOf(p.amount, widget.total), style: AppText.label.copyWith(fontWeight: FontWeight.w600)),
+                ],
               ),
-              Text(percentOf(p.amount, total), style: AppText.label.copyWith(fontWeight: FontWeight.w600)),
-            ],
+            ),
           ),
+        ),
+      );
+    }
+
+    // The middle of the ring: the total, or the picked part with its change from last month.
+    Widget middle() {
+      if (picked == null) {
+        return Column(
+          key: const ValueKey('total'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CountUp(
+              widget.total,
+              builder: (v) => Text(
+                'Rp ${_compact.format(v / 100)}',
+                style: AppText.title.copyWith(fontSize: 22, letterSpacing: -0.3),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(widget.caption, style: AppText.caption.copyWith(color: c.inkMuted)),
+          ],
+        );
+      }
+      final p = parts[picked];
+      final previous = _members(parts, picked).fold<int>(0, (sum, m) => sum + m.previous);
+      final change = previous == 0 ? null : (p.amount - previous) * 100 / previous;
+      // More spending is bad news, more income good news.
+      final good = change != null && (widget.type == 'expense' ? change <= 0 : change >= 0);
+      final lastMonth = DateFormat('MMM', 'id_ID').format(DateTime(widget.month.year, widget.month.month - 1));
+      return SizedBox(
+        key: ValueKey(picked),
+        width: 132,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              p.name,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.caption.copyWith(color: c.inkMuted),
+            ),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(formatAmount(p.amount), style: AppText.title.copyWith(fontSize: 18, letterSpacing: -0.3)),
+            ),
+            if (change != null)
+              Text(
+                change.round() == 0
+                    ? 'Sama dengan $lastMonth'
+                    : '${change > 0 ? '+' : '−'}${change.abs().round()}% dari $lastMonth',
+                style: AppText.caption.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: good ? VizColors.of(context).good : c.alert,
+                ),
+              ),
+            const SizedBox(height: 4),
+            Text(
+              'Lihat transaksi',
+              style: AppText.caption.copyWith(fontWeight: FontWeight.w600, color: c.primary),
+            ),
+          ],
         ),
       );
     }
@@ -338,14 +508,14 @@ class _CategoryCard extends StatelessWidget {
         Row(
           children: [
             Expanded(child: Text('Per kategori', style: AppText.heading.copyWith(fontSize: 16))),
-            if (labels.isNotEmpty)
+            if (widget.labels.isNotEmpty)
               PopupMenuButton<String>(
                 tooltip: 'Saring dengan label',
-                initialValue: labelId ?? _allLabels,
-                onSelected: (id) => onLabel(id == _allLabels ? null : id),
+                initialValue: widget.labelId ?? _allLabels,
+                onSelected: (id) => widget.onLabel(id == _allLabels ? null : id),
                 itemBuilder: (context) => [
                   const PopupMenuItem(value: _allLabels, child: Text('Semua label')),
-                  for (final l in labels) PopupMenuItem(value: l['id'] as String, child: Text('#${l['name']}')),
+                  for (final l in widget.labels) PopupMenuItem(value: l['id'] as String, child: Text('#${l['name']}')),
                 ],
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -369,7 +539,7 @@ class _CategoryCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 24),
             child: Text(
-              '$emptyText.',
+              '${widget.emptyText}.',
               textAlign: TextAlign.center,
               style: AppText.label.copyWith(color: c.inkMuted),
             ),
@@ -377,30 +547,36 @@ class _CategoryCard extends StatelessWidget {
         else ...[
           Center(
             child: Semantics(
-              label: '$chartLabel, total ${formatAmount(total)}',
+              // The legend rows below are the accessible way to pick a part.
+              label: '${widget.chartLabel}, total ${formatAmount(widget.total)}',
               excludeSemantics: true,
-              child: SizedBox.square(
-                dimension: 200,
-                child: CustomPaint(
-                  painter: _DonutPainter([for (final p in parts) p.amount], colors),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Rp ${_compact.format(total / 100)}',
-                          style: AppText.title.copyWith(fontSize: 22, letterSpacing: -0.3),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(caption, style: AppText.caption.copyWith(color: c.inkMuted)),
-                      ],
+              child: GestureDetector(
+                onTapUp: (d) => _tapRing(d.localPosition, parts),
+                child: SizedBox.square(
+                  dimension: 200,
+                  // The ring sweeps in clockwise whenever its numbers change (another month or view).
+                  child: TweenAnimationBuilder<double>(
+                    key: ValueKey(Object.hashAll([for (final p in parts) p.amount])),
+                    tween: Tween(begin: 0, end: 1),
+                    duration: motion(context, const Duration(milliseconds: 650)),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, t, child) => CustomPaint(
+                      painter: _DonutPainter([for (final p in parts) p.amount], colors, t, picked),
+                      child: child,
                     ),
+                    child: Center(child: AnimatedSwitcher(duration: fade, child: middle())),
                   ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
+          Text(
+            picked == null ? 'Ketuk warna untuk melihat rinciannya' : 'Ketuk tengah lingkaran untuk daftar transaksinya',
+            textAlign: TextAlign.center,
+            style: AppText.caption.copyWith(color: c.inkMuted),
+          ),
+          const SizedBox(height: 12),
           // Column-major, like the design: the largest run down the left.
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -417,24 +593,29 @@ class _CategoryCard extends StatelessWidget {
 }
 
 /// A ring of [values] from 12 o'clock clockwise, each part split from the next by a 2px gap.
+/// [progress] (0 to 1) draws only that share of the circle, for the sweep-in. With [picked], that
+/// part is drawn thicker and the others faded.
 class _DonutPainter extends CustomPainter {
-  const _DonutPainter(this.values, this.colors);
+  const _DonutPainter(this.values, this.colors, [this.progress = 1, this.picked]);
 
   final List<int> values;
   final List<Color> colors;
+  final double progress;
+  final int? picked;
 
   @override
   void paint(Canvas canvas, Size size) {
-    const stroke = 24.0;
-    final radius = size.shortestSide / 2 - 6 - stroke / 2;
+    final radius = size.shortestSide / 2 - 6 - _ringStroke / 2;
     final rect = Rect.fromCircle(center: size.center(Offset.zero), radius: radius);
     final total = values.fold<int>(0, (sum, v) => sum + v);
     if (total <= 0) return;
     final gapAngle = values.length > 1 ? 2 / radius : 0.0; // 2px of arc
     var start = -math.pi / 2;
+    final end = start + progress * 2 * math.pi;
     for (final (i, v) in values.indexed) {
       final sweep = v / total * 2 * math.pi;
-      final drawn = sweep - gapAngle;
+      if (start >= end) break;
+      final drawn = math.min(sweep, end - start) - gapAngle;
       if (drawn > 0) {
         canvas.drawArc(
           rect,
@@ -443,8 +624,8 @@ class _DonutPainter extends CustomPainter {
           false,
           Paint()
             ..style = PaintingStyle.stroke
-            ..strokeWidth = stroke
-            ..color = colors[i],
+            ..strokeWidth = picked == i ? _ringStroke + 8 : _ringStroke
+            ..color = picked == null || picked == i ? colors[i] : colors[i].withValues(alpha: 0.3),
         );
       }
       start += sweep;
@@ -452,7 +633,11 @@ class _DonutPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DonutPainter old) => !listEquals(old.values, values) || !listEquals(old.colors, colors);
+  bool shouldRepaint(_DonutPainter old) =>
+      old.progress != progress ||
+      old.picked != picked ||
+      !listEquals(old.values, values) ||
+      !listEquals(old.colors, colors);
 }
 
 // ---------------------------------------------------------------- budget hint, need split

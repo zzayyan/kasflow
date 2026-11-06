@@ -24,10 +24,11 @@ double periodElapsed(String period, DateTime now) {
 }
 
 class CategoryTotal {
-  const CategoryTotal(this.id, this.name, this.amount);
+  const CategoryTotal(this.id, this.name, this.amount, [this.previous = 0]);
   final String? id; // null = records without a category
   final String name;
   final int amount;
+  final int previous; // the same category in the month before
 }
 
 class MonthReport {
@@ -63,7 +64,7 @@ MonthReport buildMonthReport(List<Map<String, dynamic>> rows) {
   for (final r in rows) {
     final cur = (r['cur'] as int?) ?? 0;
     final prev = (r['prev'] as int?) ?? 0;
-    final total = CategoryTotal(r['category_id'] as String?, (r['name'] as String?) ?? 'Tanpa kategori', cur);
+    final total = CategoryTotal(r['category_id'] as String?, (r['name'] as String?) ?? 'Tanpa kategori', cur, prev);
     if (r['type'] == 'income') {
       income += cur;
       previousIncome += prev;
@@ -95,8 +96,16 @@ MonthReport buildMonthReport(List<Map<String, dynamic>> rows) {
 /// needs more colors than it has. Nothing is folded when only one would be left over.
 List<CategoryTotal> foldSmallest(List<CategoryTotal> ranked, int keep) {
   if (ranked.length <= keep + 1) return ranked;
-  final rest = ranked.skip(keep).fold<int>(0, (sum, c) => sum + c.amount);
-  return [...ranked.take(keep), CategoryTotal(null, 'Lainnya', rest)];
+  final rest = ranked.skip(keep);
+  return [
+    ...ranked.take(keep),
+    CategoryTotal(
+      null,
+      'Lainnya',
+      rest.fold<int>(0, (sum, c) => sum + c.amount),
+      rest.fold<int>(0, (sum, c) => sum + c.previous),
+    ),
+  ];
 }
 
 /// Totals of [type] for the [count] months ending with [lastMonth], oldest first. [rows] hold

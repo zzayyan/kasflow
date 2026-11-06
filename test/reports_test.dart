@@ -42,6 +42,11 @@ void main() {
     expect(foldSmallest(ranked.take(6).toList(), 5).length, 6); // one left over stays itself
   });
 
+  test('foldSmallest sums last month too, for the picked part\'s change', () {
+    final ranked = [for (final (i, a) in [60, 50, 40, 30, 20, 10, 5].indexed) CategoryTotal('$i', 'c$i', a, i)];
+    expect(foldSmallest(ranked, 5).last.previous, 5 + 6); // c5 and c6
+  });
+
   test('monthTotals buckets by local month, oldest first', () {
     String at(int y, int m, int d) => DateTime(y, m, d, 12).toUtc().toIso8601String();
     final rows = [

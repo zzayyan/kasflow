@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
+import 'money.dart';
 import 'theme.dart';
 
 // Small UI helpers shared by several screens.
@@ -245,6 +247,26 @@ IconData categoryIcon(String? name, String type, [String? icon]) {
   return type == 'income' ? Icons.south_west : Icons.receipt_outlined;
 }
 
+/// [d], or no time at all when the phone asks for no animations (Hapus animasi).
+Duration motion(BuildContext context, Duration d) => MediaQuery.disableAnimationsOf(context) ? Duration.zero : d;
+
+/// [builder] with [value], counting from the previous value whenever it changes. The first
+/// build shows the value at once.
+class CountUp extends StatelessWidget {
+  const CountUp(this.value, {super.key, required this.builder});
+
+  final int value;
+  final Widget Function(int value) builder;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween(end: value.toDouble()),
+    duration: motion(context, const Duration(milliseconds: 450)),
+    curve: Curves.easeOutCubic,
+    builder: (context, v, _) => builder(v.round()),
+  );
+}
+
 /// A field without a box of its own, inside a [FormRow] or as a big amount: the row draws the frame.
 InputDecoration bareField(String hint) => InputDecoration(
   hintText: hint,
@@ -255,6 +277,64 @@ InputDecoration bareField(String hint) => InputDecoration(
   enabledBorder: InputBorder.none,
   focusedBorder: InputBorder.none,
 );
+
+/// A sheet listing records, newest first, under [title] and a muted [summary] line. [rows] hold
+/// `amount`, `note`, `occurred_at`, `account` and `category`.
+Future<void> showRecordsSheet(
+  BuildContext context, {
+  required String title,
+  required String summary,
+  required List<Map<String, dynamic>> rows,
+  required String emptyText,
+}) {
+  final c = AppColors.of(context);
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.95,
+      builder: (context, scroll) => ListView(
+        controller: scroll,
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 4),
+            child: Text(title, style: AppText.heading),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 8),
+            child: Text(summary, style: AppText.label.copyWith(color: c.inkMuted)),
+          ),
+          if (rows.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(AppSpace.page),
+              child: Text(emptyText, style: AppText.body.copyWith(color: c.inkMuted)),
+            ),
+          for (final r in rows)
+            ListTile(
+              title: Text(
+                (r['note'] as String?)?.isNotEmpty == true ? r['note'] as String : r['category'] as String? ?? '-',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              // The category already titles a record without a note; don't repeat it.
+              subtitle: Text(
+                [
+                  if ((r['note'] as String?)?.isNotEmpty == true) ?(r['category'] as String?),
+                  r['account'] as String,
+                  DateFormat('d MMM', 'id_ID').format(DateTime.parse(r['occurred_at'] as String).toLocal()),
+                ].join(' · '),
+              ),
+              trailing: Text(formatAmount(r['amount'] as int), style: AppText.bodyStrong.copyWith(color: c.ink)),
+            ),
+        ],
+      ),
+    ),
+  );
+}
 
 /// The heading of a menu or list sheet, under its drag handle.
 class SheetTitle extends StatelessWidget {
@@ -290,7 +370,10 @@ Future<T?> chooseOne<T>(BuildContext context, String title, List<(T, String, Str
                     ? const Icon(Icons.check)
                     : null,
                 selected: value == current,
-                onTap: () => Navigator.pop(context, value),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.pop(context, value);
+                },
               ),
           ],
         ),
@@ -514,31 +597,61 @@ class PillSwitch<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    final at = options.indexWhere((o) => o.$1 == value);
+    final n = options.length;
+    final duration = motion(context, const Duration(milliseconds: 240));
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(color: c.surfaceMuted, borderRadius: BorderRadius.circular(26)),
-      child: Row(
+      child: Stack(
         children: [
-          for (final (option, label) in options)
-            Expanded(
-              child: Semantics(
-                selected: value == option,
-                child: TextButton(
-                  onPressed: () => onChanged(option),
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size.fromHeight(44),
-                    shape: const StadiumBorder(),
-                    backgroundColor: value == option ? c.primary : Colors.transparent,
-                    foregroundColor: value == option ? c.onPrimary : c.ink,
-                    textStyle: AppText.button.copyWith(
-                      fontSize: fontSize,
-                      fontWeight: value == option ? FontWeight.w500 : FontWeight.w400,
-                    ),
+          // One dark thumb that slides to the chosen option.
+          if (at >= 0)
+            Positioned.fill(
+              child: AnimatedAlign(
+                alignment: Alignment(n < 2 ? 0 : -1 + 2 * at / (n - 1), 0),
+                duration: duration,
+                curve: Curves.easeOutCubic,
+                child: FractionallySizedBox(
+                  widthFactor: 1 / n,
+                  heightFactor: 1,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: c.primary, borderRadius: BorderRadius.circular(22)),
                   ),
-                  child: Text(label),
                 ),
               ),
             ),
+          Row(
+            children: [
+              for (final (option, label) in options)
+                Expanded(
+                  child: Semantics(
+                    selected: value == option,
+                    child: TextButton(
+                      onPressed: () {
+                        if (option == value) return;
+                        HapticFeedback.selectionClick();
+                        onChanged(option);
+                      },
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                        shape: const StadiumBorder(),
+                        foregroundColor: value == option ? c.onPrimary : c.ink,
+                      ),
+                      child: AnimatedDefaultTextStyle(
+                        duration: duration,
+                        style: AppText.button.copyWith(
+                          fontSize: fontSize,
+                          fontWeight: value == option ? FontWeight.w500 : FontWeight.w400,
+                          color: value == option ? c.onPrimary : c.ink,
+                        ),
+                        child: Text(label),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -631,7 +744,10 @@ class SelectableBars extends StatelessWidget {
                               excludeSemantics: true,
                               onTap: () => onSelect(i), // excludeSemantics drops the InkWell's own action
                               child: InkWell(
-                                onTap: () => onSelect(i),
+                                onTap: () {
+                                  if (i != selected) HapticFeedback.selectionClick();
+                                  onSelect(i);
+                                },
                                 child: _Column(
                                   plot: height,
                                   height: values[i] * scale,
@@ -750,7 +866,10 @@ class _Column extends StatelessWidget {
     height: plot,
     child: Align(
       alignment: Alignment.bottomCenter,
-      child: Container(
+      // Grows or shrinks to a new value, e.g. another month's trend.
+      child: AnimatedContainer(
+        duration: motion(context, const Duration(milliseconds: 350)),
+        curve: Curves.easeOutCubic,
         width: 24,
         height: height < 2 ? 2 : height, // an empty day still shows where it sits
         decoration: BoxDecoration(color: color, borderRadius: const BorderRadius.vertical(top: Radius.circular(4))),

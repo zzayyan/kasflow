@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../home_widget.dart';
 import '../notifications.dart';
 import '../theme.dart';
+import '../ui.dart';
 import 'bills_tab.dart';
 import 'dashboard_tab.dart';
 import 'plans_tab.dart';
@@ -59,18 +61,30 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       // Every tab draws its own header, as in the design; Beranda's avatar opens Profil, its gear Pengaturan.
-      body: switch (_tab) {
-        0 => DashboardTab(onOpenTab: (i) => setState(() => _tab = i)),
-        1 => const RecordsTab(),
-        2 => const PlansTab(),
-        _ => const ReportTab(),
-      },
+      // A short cross-fade between tabs instead of a hard cut.
+      body: AnimatedSwitcher(
+        duration: motion(context, const Duration(milliseconds: 200)),
+        switchInCurve: Curves.easeOut,
+        switchOutCurve: Curves.easeIn,
+        child: KeyedSubtree(
+          key: ValueKey(_tab),
+          child: switch (_tab) {
+            0 => DashboardTab(onOpenTab: (i) => setState(() => _tab = i)),
+            1 => const RecordsTab(),
+            2 => const PlansTab(),
+            _ => const ReportTab(),
+          },
+        ),
+      ),
       bottomNavigationBar: StreamBuilder(
         stream: _dueBills,
         builder: (context, snap) => _BottomNav(
           selected: _tab,
           dueBills: snap.data ?? 0,
-          onSelect: (i) => setState(() => _tab = i),
+          onSelect: (i) {
+            if (i != _tab) HapticFeedback.selectionClick();
+            setState(() => _tab = i);
+          },
           onAdd: () => showRecordForm(context),
         ),
       ),
