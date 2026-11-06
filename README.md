@@ -28,3 +28,5 @@ The release build is signed with the debug key, so it installs over a debug buil
 
 - `flutter test`
 - `cd supabase/tests && npm install && npm test` runs the migration against PGlite and checks constraints and RLS
+- GitHub Actions runs both on every push (`.github/workflows/checks.yml`)
+- On the phone, `adb logcat -s flutter` shows the app's log records and uncaught errors, release builds included
