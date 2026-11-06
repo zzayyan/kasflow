@@ -12,6 +12,9 @@ This file is the single source of truth for every coding agent on this repo (Cla
 - The screens in `lib/screens/` implement every artboard of the owner's design, and `lib/theme.dart` holds its tokens (`AppColors`, `AppText`, `AppRadius`, `AppSpace`). To build or change UI, match the existing screens and use these tokens. The owner notices drift, such as a moved + button.
 - A screen with no counterpart in the code needs its design first: ask the owner for a screenshot of the artboard.
 - The design itself lives in a Claude Design canvas, "Cashflow UI/UX" (https://claude.ai/artifact/GPENb6juXJgm5LJgogX4Xd, direction E "hijau hutan"). Only Claude can open it, through its Artifact tool. The canvas still shows old chart colors; the code's values are the agreed ones (five distinct validated hues plus gray for the category donut, light "need" color `#4F8A66`).
+- Forms follow the Catat transaksi artboard through shared pieces in `lib/ui.dart`: `FormSheet` for a form in a bottom sheet, `FormCard` and `FormRow` for its fields and pickers, `chooseOne` for a pick list, `SheetTitle` for a menu sheet. A row holding a text field passes the field's `focusNode`, so a tap anywhere on the row types into it.
+- Tap feedback goes through `haptic()` in `lib/ui.dart`. The owner keeps Android's system touch vibration off, which silences Flutter's `HapticFeedback`; `haptic()` plays on the vibrator through `MainActivity.kt`, behind the app's own "Getar saat mengetuk" toggle.
+- Animation durations go through `motion()`, which turns them to zero when Android's "remove animations" setting is on.
 - UI copy is Indonesian. Code, comments, and commit messages are English.
 
 ## Device builds
@@ -19,6 +22,7 @@ This file is the single source of truth for every coding agent on this repo (Cla
 - The owner uses the app daily on their phone (Galaxy A54). After any device check, leave a release build installed. Debug builds stutter (600-800 ms frames), and the owner reads that as lag.
 - Use the release commands in `README.md` exactly, with `--split-per-abi`. That build has versionCode 2001; a plain `--release` build has versionCode 1 and fails with `INSTALL_FAILED_VERSION_DOWNGRADE`.
 - Always update in place with `adb install -r`. The phone holds the owner's real data, and uninstalling wipes it.
+- The phone is often in the owner's hand, in another app. Before each `adb shell input` tap, confirm Cashflow holds focus (`adb shell dumpsys window | grep mCurrentFocus`); a tap that lands on the home screen opens whatever app sits there.
 - `adb` is not on PATH. On Windows, call `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`.
 - The phone is paired for Wi-Fi debugging. If `adb devices` is empty, run `adb mdns services` to find the current connect port, then `adb connect <ip:port>`. The port changes when Wi-Fi debugging restarts.
 
