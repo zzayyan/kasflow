@@ -51,3 +51,6 @@ app.*.map.json
 .env
 supabase/.temp/
 data/
+
+# Agent handoff note, rewritten each session (see AGENTS.md, "Handoff")
+/.agents/HANDOFF.md

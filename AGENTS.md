@@ -2,6 +2,33 @@
 
 This file is the single source of truth for every coding agent on this repo (Claude Code, Antigravity, and others). Setup, layout, and test commands are in `README.md`. This file holds what the code does not show. When you learn a lasting convention, gotcha, or decision, add it here, not to an agent's private memory.
 
+## Handoff
+
+The owner switches between agents mid-task. `.agents/HANDOFF.md` (gitignored) carries the work in progress from one session to the next, so the next agent picks up without the owner re-explaining.
+
+- Start of a session: read `.agents/HANDOFF.md` if it exists, and treat it as the current task. Claude Code receives it through a SessionStart hook.
+- When a session leaves work unfinished, or the owner says "handoff": rewrite the whole file to reflect the current state, with the branch, the goal, what is done, what is next, open decisions and the owner's latest feedback, and the skills the next agent should use. Point at commits, files, and URLs instead of copying them. Keep secrets and the owner's financial data out.
+- After the branch merges into main, delete the file.
+- In Claude Code, a Stop hook (`.claude/hooks/handoff-stale.sh`) asks for the rewrite whenever files changed after the last one.
+
+## Skills
+
+The owner's skills live in `~/.agents/skills/<name>/SKILL.md`; Claude Code also gets them from the mattpocock-skills plugin. Use the matching skill through your skill tool, or read its `SKILL.md` if your agent has none:
+
+- `diagnosing-bugs`: something broken, throwing, failing, or slow.
+- `tdd`: a feature or fix built test-first.
+- `prototype`: a throwaway to try a state model or a UI idea.
+- `research`: facts from primary sources, written up as Markdown.
+- `domain-modeling`: naming domain terms, or writing a glossary or ADR.
+- `codebase-design`: a module's interface, seams, or testability.
+- `code-review`: reviewing a branch, a PR, or work in progress.
+- `resolving-merge-conflicts`: a merge or rebase stopped on conflicts.
+- `grilling`: the owner wants a plan stress-tested.
+- `writing-for-agents`: editing this file, a skill, or another doc agents read.
+- `handoff`: the owner says "handoff". Save to `.agents/HANDOFF.md` (see Handoff), in place of the OS temp folder.
+
+For a library or SDK question (Flutter, PowerSync, Supabase), look up current docs, through context7 where available, before answering from memory.
+
 ## Scope
 
 - Android-only personal finance app. Screens are phone-sized; no web build is planned.

@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/.agents/HANDOFF.md\"; [ -f \"$f\" ] && { echo '# .agents/HANDOFF.md (work in progress from the last agent session)'; cat \"$f\"; } || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/handoff-stale.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
