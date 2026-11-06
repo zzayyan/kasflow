@@ -417,6 +417,7 @@ class _AccountFormState extends State<AccountForm> {
             TextField(
               controller: _balance,
               keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
+              inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(
                 labelText: 'Saldo awal',
                 prefixText: 'Rp ',

@@ -179,7 +179,7 @@ class _BillFormState extends State<BillForm> {
     final name = _name.text.trim();
     if (name.isEmpty) return showMessage(context, 'Isi nama tagihan, contoh: Listrik PLN');
     final amount = parseAmount(_amount.text);
-    if (amount == null) return showMessage(context, 'Nominal tidak valid. Contoh: 350rb');
+    if (amount == null) return showMessage(context, 'Nominal tidak valid. Contoh: 350.000');
     final currency = widget.accounts.firstWhere((a) => a['id'] == _accountId)['currency'];
     final now = nowIso();
     await db.execute(
@@ -238,6 +238,7 @@ class _BillFormState extends State<BillForm> {
             TextField(
               controller: _amount,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(labelText: 'Nominal', prefixText: 'Rp '),
             ),
             DropdownButtonFormField(

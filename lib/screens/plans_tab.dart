@@ -1100,6 +1100,7 @@ class _GoalFormState extends State<GoalForm> {
             TextField(
               controller: _target,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(labelText: 'Target', prefixText: 'Rp '),
             ),
             DropdownButtonFormField(
@@ -1116,6 +1117,7 @@ class _GoalFormState extends State<GoalForm> {
               TextField(
                 controller: _saved,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: const [AmountInputFormatter()],
                 decoration: const InputDecoration(labelText: 'Sudah terkumpul (opsional)', prefixText: 'Rp '),
               )
             else
@@ -1206,7 +1208,7 @@ class _BudgetFormState extends State<BudgetForm> {
 
   Future<void> _save() async {
     final amount = parseAmount(_amount.text);
-    if (amount == null) return showMessage(context, 'Batas tidak valid. Contoh: 1,5jt atau 500rb');
+    if (amount == null) return showMessage(context, 'Batas tidak valid. Contoh: 1.500.000');
     final names = [
       for (final c in widget.categories)
         if (_selected.contains(c['id'])) c['name'] as String,
@@ -1265,6 +1267,7 @@ class _BudgetFormState extends State<BudgetForm> {
             controller: _amount,
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: const [AmountInputFormatter()],
             decoration: const InputDecoration(labelText: 'Batas pengeluaran', prefixText: 'Rp '),
           ),
           TextField(

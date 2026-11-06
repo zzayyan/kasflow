@@ -135,7 +135,7 @@ class _WelcomePageState extends State<WelcomePage> with WidgetsBindingObserver {
       final p = presets[provider]!;
       final raw = _balances[provider]?.text.trim() ?? '';
       final amount = raw.isEmpty ? 0 : parseAmount(raw);
-      if (amount == null) return showMessage(context, 'Saldo ${p.name} tidak valid. Contoh: 350.000 atau 350rb');
+      if (amount == null) return showMessage(context, 'Saldo ${p.name} tidak valid. Contoh: 350.000');
       // Paylater balances are what is still owed, so they are stored below zero.
       accounts.add((provider: provider, balance: p.type == 'paylater' ? -amount : amount));
     }
@@ -715,6 +715,7 @@ class _AccountsIntro extends StatelessWidget {
                                   child: TextField(
                                     controller: balances.putIfAbsent(provider, TextEditingController.new),
                                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    inputFormatters: const [AmountInputFormatter()],
                                     textAlign: TextAlign.right,
                                     style: AppText.body.copyWith(fontWeight: FontWeight.w500),
                                     decoration: InputDecoration(

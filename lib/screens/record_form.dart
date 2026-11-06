@@ -261,13 +261,13 @@ class _RecordFormState extends State<RecordForm> {
 
   Future<void> _save() async {
     final amount = parseAmount(_amount.text);
-    if (amount == null) return showMessage(context, 'Nominal tidak valid. Contoh: 25.000 atau 25rb');
+    if (amount == null) return showMessage(context, 'Nominal tidak valid. Contoh: 25.000');
     if (_type == 'transfer' && (_targetId == null || _targetId == _accountId)) {
       return showMessage(context, 'Pilih akun tujuan yang berbeda.');
     }
     final fee = _type == 'transfer' && !_editing && _fee.text.trim().isNotEmpty ? parseAmount(_fee.text) : null;
     if (_type == 'transfer' && !_editing && _fee.text.trim().isNotEmpty && fee == null) {
-      return showMessage(context, 'Biaya admin tidak valid. Contoh: 1.000 atau 2,5rb');
+      return showMessage(context, 'Biaya admin tidak valid. Contoh: 1.000');
     }
     final currency = widget.accounts.firstWhere((a) => a['id'] == _accountId)['currency'] as String;
     final p = widget.prefill;
@@ -428,6 +428,7 @@ class _RecordFormState extends State<RecordForm> {
                     controller: _amount,
                     autofocus: !_showQuick && !_editing && _amount.text.isEmpty,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: const [AmountInputFormatter()],
                     style: AppText.amountXl.copyWith(color: c.ink),
                     decoration: const InputDecoration(
                       hintText: '0',
@@ -526,6 +527,7 @@ class _RecordFormState extends State<RecordForm> {
                       child: TextField(
                         controller: _fee,
                         keyboardType: TextInputType.number,
+                        inputFormatters: const [AmountInputFormatter()],
                         style: AppText.body.copyWith(fontWeight: FontWeight.w500),
                         decoration: const InputDecoration(
                           hintText: '0',

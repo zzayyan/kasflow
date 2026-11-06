@@ -1,8 +1,52 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'theme.dart';
 
 // Small UI helpers shared by several screens.
+
+/// Groups an amount field as it is typed: "3000000" shows "3.000.000". Keeps a leading "-" and
+/// one "," with up to two decimals ("2,5"), drops anything else, and keeps the cursor beside the
+/// same digit. Backspace right after a "." deletes the digit before it. parseAmount reads the result.
+class AmountInputFormatter extends TextInputFormatter {
+  const AmountInputFormatter();
+
+  static final _junk = RegExp(r'[^0-9,]');
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    var text = newValue.text;
+    var cursor = newValue.selection.end.clamp(0, text.length);
+    final old = oldValue.text;
+    if (text.length == old.length - 1 && newValue.selection.isCollapsed && cursor > 0 && cursor < old.length &&
+        old[cursor] == '.' && text == old.replaceRange(cursor, cursor + 1, '')) {
+      text = text.replaceRange(cursor - 1, cursor, '');
+      cursor--;
+    }
+    final negative = text.startsWith('-');
+    final kept = text.replaceAll(_junk, ''); // digits and commas
+    final keptAfter = text.substring(cursor).replaceAll(_junk, '').length;
+    final comma = kept.indexOf(',');
+    final whole = (comma < 0 ? kept : kept.substring(0, comma)).replaceFirst(RegExp(r'^0+(?=\d)'), '');
+    final decimals = comma < 0 ? null : kept.substring(comma + 1).replaceAll(',', '');
+    final grouped = StringBuffer();
+    for (var i = 0; i < whole.length; i++) {
+      if (i > 0 && (whole.length - i) % 3 == 0) grouped.write('.');
+      grouped.write(whole[i]);
+    }
+    final formatted = '${negative ? '-' : ''}$grouped'
+        '${decimals == null ? '' : ',${decimals.length > 2 ? decimals.substring(0, 2) : decimals}'}';
+    // Same number of digits and commas to the right of the cursor as before formatting.
+    var at = formatted.length;
+    for (var n = 0; at > 0 && n < keptAfter; at--) {
+      if (formatted[at - 1] != '.' && formatted[at - 1] != '-') n++;
+    }
+    while (at > 0 && formatted[at - 1] == '.') {
+      at--; // "12|.000", not "12.|000"
+    }
+    return TextEditingValue(text: formatted, selection: TextSelection.collapsed(offset: at));
+  }
+}
 
 void showMessage(BuildContext context, String text) =>
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
