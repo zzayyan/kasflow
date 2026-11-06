@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AppColors.dark: the hero card is the same green; only the alert state changes. -->
+<resources>
+    <color name="widget_alert">#E8876A</color>
+    <color name="widget_on_alert">#0F1612</color>
+    <color name="widget_alert_soft">#3A2119</color>
+</resources>

@@ -27,7 +27,15 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+        <!-- Home screen widget: "Jatah hari ini" and a + for Catat cepat. -->
+        <receiver android:name=".AllowanceWidget" android:label="Jatah hari ini" android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/allowance_widget_info" />
+        </receiver>
         <!-- A7: bill reminders; restores alarms after a reboot or an app update. -->
         <receiver android:name=".ReminderReceiver" android:exported="false">
             <intent-filter>

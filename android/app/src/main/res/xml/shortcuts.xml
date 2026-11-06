@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon: "Catat cepat" opens Transaksi with the quick input focused. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:icon="@drawable/ic_shortcut_quick_input"
+        android:shortcutId="quick_input"
+        android:shortcutShortLabel="@string/shortcut_quick_input">
+        <intent
+            android:action="com.cashflowapp.cashflow_app.QUICK_INPUT"
+            android:targetClass="com.cashflowapp.cashflow_app.MainActivity"
+            android:targetPackage="com.cashflowapp.cashflow_app" />
+    </shortcut>
+</shortcuts>

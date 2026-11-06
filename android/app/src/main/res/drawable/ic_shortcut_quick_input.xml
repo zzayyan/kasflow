@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher shortcut icon: a white + on the hero green circle. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval"><solid android:color="@color/widget_hero" /></shape>
+    </item>
+    <item android:drawable="@drawable/ic_widget_add" android:gravity="center" android:width="24dp" android:height="24dp" />
+</layer-list>

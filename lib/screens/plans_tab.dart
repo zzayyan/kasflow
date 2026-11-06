@@ -59,7 +59,7 @@ const _budgetRecordsSql = '''
 
 /// Budgets with what each spent in its current period, kept fresh as records change.
 Stream<List<BudgetView>> watchBudgets() => db
-    .watch('SELECT * FROM budgets ORDER BY name', triggerOnTables: const ['budgets', 'records', 'accounts'])
+    .watch('SELECT * FROM budgets ORDER BY name', triggerOnTables: const ['budgets', 'records', 'accounts', 'prefs'])
     .asyncMap((rows) async {
       final now = DateTime.now();
       return [

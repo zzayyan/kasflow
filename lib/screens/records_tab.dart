@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:logging/logging.dart';
 
 import '../categorize.dart';
 import '../db.dart';
+import '../home_widget.dart';
 import '../money.dart';
 import '../notifications.dart';
 import '../quick_input.dart';
@@ -281,7 +283,29 @@ class QuickInputBar extends StatefulWidget {
 
 class _QuickInputBarState extends State<QuickInputBar> {
   final _text = TextEditingController();
+  final _focus = FocusNode();
   bool _busy = false; // Gemini is reading the line, which takes a second or two
+
+  @override
+  void initState() {
+    super.initState();
+    quickInputRequests.addListener(_focusInput);
+    // Opened by the widget or shortcut: Transaksi was just built, so the request is already in.
+    if (quickInputRequests.value > _handled) WidgetsBinding.instance.addPostFrameCallback((_) => _focusInput());
+  }
+
+  static int _handled = 0; // the last request answered; the tab is rebuilt on every visit
+
+  void _focusInput() {
+    _handled = quickInputRequests.value;
+    if (!mounted) return;
+    _focus.requestFocus();
+    // On a cold start the focus lands before Android gives the window input, so the keyboard
+    // stays down; asking again once the window is up brings it.
+    Future.delayed(const Duration(milliseconds: 400), () {
+      if (_focus.hasFocus) SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+    });
+  }
 
   Future<void> _submit() async {
     if (_busy) return;
@@ -295,6 +319,8 @@ class _QuickInputBarState extends State<QuickInputBar> {
 
   @override
   void dispose() {
+    quickInputRequests.removeListener(_focusInput);
+    _focus.dispose();
     _text.dispose();
     super.dispose();
   }
@@ -312,6 +338,7 @@ class _QuickInputBarState extends State<QuickInputBar> {
         ),
         TextField(
           controller: _text,
+          focusNode: _focus,
           textInputAction: TextInputAction.send,
           onSubmitted: (_) => _submit(),
           style: AppText.body,

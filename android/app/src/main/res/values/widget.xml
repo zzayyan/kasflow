@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home screen widget and launcher shortcut. Colors are lib/theme.dart's AppColors (light). -->
+<resources>
+    <color name="widget_hero">#1E4A35</color>
+    <color name="widget_on_hero">#FFFFFF</color>
+    <color name="widget_on_hero_muted">#E3EEE5</color>
+    <color name="widget_on_hero_chip">#CDE8D2</color>
+    <color name="widget_add_bg">#FAF9F5</color>
+    <color name="widget_alert">#A4431F</color>
+    <color name="widget_on_alert">#FFFFFF</color>
+    <color name="widget_alert_soft">#F6E1D8</color>
+    <string name="widget_description">Jatah hari ini dan tombol catat cepat</string>
+    <string name="shortcut_quick_input">Catat cepat</string>
+</resources>

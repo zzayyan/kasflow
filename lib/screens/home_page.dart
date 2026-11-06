@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../home_widget.dart';
 import '../notifications.dart';
 import '../theme.dart';
 import 'bills_tab.dart';
@@ -21,6 +22,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _tab = 0;
   late final StreamSubscription<void> _reminders;
+  late final StreamSubscription<void> _widget;
   final _dueBills = watchDueBillCount();
   late final Timer _notificationPoll;
 
@@ -28,6 +30,10 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _reminders = keepRemindersScheduled();
+    _widget = keepWidgetUpdated();
+    // The widget's + and the "Catat cepat" shortcut land on Transaksi, whose input takes the focus.
+    quickInputRequests.addListener(_openQuickInput);
+    listenForQuickInput();
     // Tabs import on resume; this catches a notification that arrives while the app stays open.
     _notificationPoll = Timer.periodic(const Duration(seconds: 5), (_) async {
       if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
@@ -39,7 +45,14 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _notificationPoll.cancel();
     _reminders.cancel();
+    _widget.cancel();
+    quickInputRequests.removeListener(_openQuickInput);
     super.dispose();
+  }
+
+  void _openQuickInput() {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    setState(() => _tab = 1);
   }
 
   @override

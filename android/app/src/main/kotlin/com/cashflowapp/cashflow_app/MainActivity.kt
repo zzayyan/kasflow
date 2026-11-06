@@ -12,11 +12,34 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var channel: MethodChannel? = null
+    // Started from the widget's + or the "Catat cepat" shortcut; lib/home_widget.dart takes it once.
+    private var quickInput = false
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        quickInput = intent?.action == AllowanceWidget.QUICK_INPUT
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == AllowanceWidget.QUICK_INPUT) channel?.invokeMethod("quickInput", null)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "cashflow/notifications")
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "cashflow/notifications")
+        channel!!
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "updateWidget" -> {
+                        AllowanceWidget.save(this, call.arguments as Map<*, *>)
+                        result.success(null)
+                    }
+                    "takeQuickInput" -> {
+                        result.success(quickInput)
+                        quickInput = false
+                    }
                     "isEnabled" -> {
                         val me = ComponentName(this, TransactionNotificationListener::class.java).flattenToString()
                         val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
