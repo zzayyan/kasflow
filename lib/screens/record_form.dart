@@ -1,5 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:logging/logging.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show FunctionException;
 
 import '../categorize.dart';
 import '../db.dart';
@@ -195,6 +200,71 @@ class _RecordFormState extends State<RecordForm> {
     });
   }
 
+  bool _reading = false; // Gemini is reading a receipt photo
+
+  /// The camera button of the quick field: a receipt photo fills the form for a check before saving.
+  Future<void> _scanReceipt() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Foto struk'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Pilih dari galeri'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    // 1600 px keeps small print readable at about 300 kB, well inside the free Gemini quota.
+    final photo = await ImagePicker().pickImage(source: source, maxWidth: 1600, maxHeight: 1600, imageQuality: 80);
+    if (photo == null || !mounted) return;
+    setState(() => _reading = true);
+    try {
+      final r = await _readReceipt(await photo.readAsBytes(), widget.accounts, widget.categories);
+      if (!mounted) return;
+      if (r == null) {
+        return showMessage(context, 'Tidak bisa membaca struk sekarang (offline atau kuota habis). Isi manual dulu.');
+      }
+      final amount = (r['amount'] as num?)?.toInt() ?? 0;
+      if (amount <= 0) return showMessage(context, 'Total struk tidak terbaca. Coba foto lebih dekat dan terang.');
+      String? known(Object? id, List<Map<String, dynamic>> rows) =>
+          rows.any((x) => x['id'] == id) ? id as String : null;
+      final now = DateTime.now();
+      final daysAgo = ((r['days_ago'] as num?)?.toInt() ?? 0).clamp(0, 366);
+      setState(() {
+        _amount.text = NumberFormat.decimalPattern('id_ID').format(amount);
+        _type = 'expense';
+        _note.text = (r['note'] as String?)?.trim() ?? '';
+        // The printed time when there is one ("14:05"), else now.
+        final time = RegExp(r'^([01]?\d|2[0-3])[:.]([0-5]\d)$').firstMatch((r['time'] as String?)?.trim() ?? '');
+        _date = DateTime(
+          now.year,
+          now.month,
+          now.day - daysAgo,
+          time == null ? now.hour : int.parse(time[1]!),
+          time == null ? now.minute : int.parse(time[2]!),
+        );
+        if (known(r['account_id'], widget.accounts) case final id?) _accountId = id;
+        _categoryId =
+            known(r['category_id'], widget.categories) ?? guessCategoryId(_note.text, 'expense', widget.categories);
+        _categoryPicked = false;
+      });
+      FocusManager.instance.primaryFocus?.unfocus(); // show the filled form, not the keyboard
+    } finally {
+      if (mounted) setState(() => _reading = false);
+    }
+  }
+
   void _pickCategory(String? id) => setState(() {
     _categoryId = id;
     _categoryPicked = true;
@@ -243,12 +313,16 @@ class _RecordFormState extends State<RecordForm> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (day == null || !mounted) return;
-    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_date));
-    final t = time ?? TimeOfDay.fromDateTime(_date); // no time picked: keep the one it had
-    setState(() => _date = DateTime(day.year, day.month, day.day, t.hour, t.minute));
+    setState(() => _date = DateTime(day.year, day.month, day.day, _date.hour, _date.minute));
   }
 
-  String get _dateText {
+  Future<void> _pickTime() async {
+    final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_date));
+    if (t == null || !mounted) return;
+    setState(() => _date = DateTime(_date.year, _date.month, _date.day, t.hour, t.minute));
+  }
+
+  String get _dayText {
     final now = DateTime.now();
     final days = DateTime(now.year, now.month, now.day).difference(DateTime(_date.year, _date.month, _date.day)).inDays;
     final day = switch (days) {
@@ -256,7 +330,7 @@ class _RecordFormState extends State<RecordForm> {
       1 => 'Kemarin, ${DateFormat('d MMM', 'id_ID').format(_date)}',
       _ => DateFormat('EEEE, d MMM yyyy', 'id_ID').format(_date),
     };
-    return '$day · ${DateFormat('HH.mm').format(_date)}';
+    return day;
   }
 
   Future<void> _save() async {
@@ -387,6 +461,19 @@ class _RecordFormState extends State<RecordForm> {
                 hintText: 'bakso 25rb pakai gopay',
                 fillColor: c.primarySoft,
                 prefixIcon: Icon(Icons.bolt, size: 20, color: c.primary),
+                suffixIcon: _reading
+                    ? Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: c.primary),
+                        ),
+                      )
+                    : IconButton(
+                        tooltip: 'Foto struk',
+                        onPressed: _scanReceipt,
+                        icon: Icon(Icons.photo_camera_outlined, color: c.primary),
+                      ),
                 contentPadding: const EdgeInsets.symmetric(vertical: 16),
                 border: const OutlineInputBorder(
                   borderRadius: BorderRadius.all(Radius.circular(26)),
@@ -543,7 +630,48 @@ class _RecordFormState extends State<RecordForm> {
                   ],
                 ],
                 const Divider(indent: 16, endIndent: 16),
-                _Row(icon: Icons.calendar_today_outlined, label: 'Tanggal', value: _dateText, onTap: _pickDate),
+                // The day opens the calendar, the time pill the clock, each on its own.
+                _Row(
+                  icon: Icons.calendar_today_outlined,
+                  label: 'Tanggal',
+                  onTap: _pickDate,
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _dayText,
+                          style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Material(
+                        color: c.primarySoft,
+                        borderRadius: BorderRadius.circular(14),
+                        child: InkWell(
+                          onTap: _pickTime,
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.schedule, size: 16, color: c.primary),
+                                const SizedBox(width: 4),
+                                Text(
+                                  DateFormat('HH.mm').format(_date),
+                                  semanticsLabel: 'Jam ${DateFormat('HH.mm').format(_date)}, ubah jam',
+                                  style: AppText.body.copyWith(fontWeight: FontWeight.w500, color: c.primary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -694,4 +822,42 @@ class _Row extends StatelessWidget {
       ),
     );
   }
+}
+
+final _log = Logger('receipt');
+
+/// Gemini's reading of a receipt photo (supabase/functions/parse-receipt): `amount` in whole
+/// rupiah (0 when unreadable), `note`, `account_id`, `category_id` ("none" when unsure), `days_ago`,
+/// `time` ("HH:mm", empty when not printed).
+/// Null when Gemini can't be reached in time (offline, over quota).
+Future<Map<String, dynamic>?> _readReceipt(
+  List<int> jpeg,
+  List<Map<String, dynamic>> accounts,
+  List<Map<String, dynamic>> categories,
+) async {
+  try {
+    final response = await supabase.functions
+        .invoke(
+          'parse-receipt',
+          body: {
+            'image': base64Encode(jpeg),
+            'today': DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(DateTime.now()),
+            'accounts': [
+              for (final a in accounts) {'id': a['id'], 'name': a['name'], 'provider': a['provider']},
+            ],
+            'categories': [
+              for (final c in categories)
+                {'id': c['id'], 'name': c['name'], 'type': c['type'], 'keywords': c['keywords']},
+            ],
+          },
+        )
+        .timeout(const Duration(seconds: 25)); // an image takes Gemini longer than a line of text
+    if (response.data case final Map<String, dynamic> data) return data;
+    _log.warning('parse-receipt answered ${response.data.runtimeType}');
+  } on FunctionException catch (e) {
+    _log.warning('parse-receipt failed with ${e.status}', e);
+  } on Exception catch (e) {
+    _log.warning('parse-receipt unreachable', e);
+  }
+  return null;
 }
