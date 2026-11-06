@@ -272,10 +272,10 @@ class _Header extends StatelessWidget {
   final VoidCallback onSettings; // the gear: opens Pengaturan
 
   static String _greeting(int hour) => switch (hour) {
-    >= 4 && < 10 => 'Pagi',
-    >= 10 && < 15 => 'Siang',
-    >= 15 && < 18 => 'Sore',
-    _ => 'Malam',
+    >= 4 && < 10 => 'Selamat pagi',
+    >= 10 && < 15 => 'Selamat siang',
+    >= 15 && < 18 => 'Selamat sore',
+    _ => 'Selamat malam',
   };
 
   @override
