@@ -1,6 +1,7 @@
 import 'package:cashflow_app/theme.dart';
 import 'package:cashflow_app/ui.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -83,5 +84,44 @@ void main() {
     expect(percentOf(0, 1000), '0%');
     expect(percentOf(5, 1000), '1%');
     expect(percentOf(1, 0), '0%');
+  });
+
+  testWidgets('a finger sliding across the bars previews each and selects where it lifts', (tester) async {
+    final picked = <int>[];
+    final ticks = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(const MethodChannel('cashflow/notifications'), (call) async {
+      if (call.method == 'haptic') ticks.add(call.arguments as String);
+      return null;
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(Brightness.light),
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            child: SelectableBars(
+              values: const [1, 2, 3, 4, 5, 6],
+              labels: const ['a', 'b', 'c', 'd', 'e', 'f'],
+              readouts: const ['a', 'b', 'c', 'd', 'e', 'f'],
+              selected: 5,
+              onSelect: picked.add,
+              valueText: (v) => '$v',
+            ),
+          ),
+        ),
+      ),
+    );
+    final plot = tester.getRect(find.byType(GestureDetector).first);
+    final gesture = await tester.startGesture(plot.centerRight - const Offset(5, 0));
+    await gesture.moveBy(const Offset(-120, 0)); // past the drag slop, onto the middle columns
+    await tester.pump();
+    await gesture.moveBy(const Offset(-130, 0)); // to the first column
+    await tester.pump();
+    expect(picked, isEmpty); // a preview, not yet a pick
+    await gesture.up();
+    await tester.pump();
+    expect(picked, [0]);
+    expect(ticks, isNotEmpty);
+    expect(ticks.toSet(), {'tick'});
   });
 }

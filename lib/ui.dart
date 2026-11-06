@@ -676,9 +676,10 @@ class PillSwitch<T> extends StatelessWidget {
 }
 
 /// Columns of one series on one baseline (Laporan's trend, Beranda's week). The selected column
-/// is dark and carries its value; the others are muted; tapping one selects it. [ticks] adds an
-/// axis on the right; without it the tallest column fills the height.
-class SelectableBars extends StatelessWidget {
+/// is dark and carries its value; the others are muted; tapping one selects it, and a finger
+/// sliding across the columns previews each one, selecting where it lifts. [ticks] adds an axis on
+/// the right; without it the tallest column fills the height.
+class SelectableBars extends StatefulWidget {
   const SelectableBars({
     super.key,
     required this.values,
@@ -706,10 +707,44 @@ class SelectableBars extends StatelessWidget {
   final String? averageText;
   final double height;
 
-  static const _axisWidth = 30.0;
+  static const axisWidth = 30.0; // the tick labels on the right
+
+  @override
+  State<SelectableBars> createState() => _SelectableBarsState();
+}
+
+class _SelectableBarsState extends State<SelectableBars> {
+  int? _scrub; // the column under a sliding finger, shown as selected until it lifts
+
+  void _scrubTo(double dx, double width) {
+    final i = (dx / width * widget.values.length).floor().clamp(0, widget.values.length - 1);
+    if (i == (_scrub ?? widget.selected)) return;
+    haptic(Haptic.tick);
+    setState(() => _scrub = i);
+  }
+
+  void _lift() {
+    final i = _scrub;
+    setState(() => _scrub = null);
+    if (i != null && i != widget.selected) widget.onSelect(i);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final SelectableBars(
+      :values,
+      :labels,
+      :readouts,
+      :onSelect,
+      :valueText,
+      :ticks,
+      :tickText,
+      :average,
+      :averageText,
+      :height,
+    ) = widget;
+    const axisWidth = SelectableBars.axisWidth;
+    final selected = _scrub ?? widget.selected;
     final c = AppColors.of(context);
     final top = ticks?.last ?? values.fold<int>(0, (m, v) => v > m ? v : m);
     final scale = top == 0 ? 0.0 : height / top;
@@ -720,7 +755,7 @@ class SelectableBars extends StatelessWidget {
         // The selected value sits in a band above the plot, over its column, so it never covers a
         // taller neighbour. Align keeps it inside the band at the edges.
         Padding(
-          padding: EdgeInsets.only(right: ticks == null ? 0 : _axisWidth),
+          padding: EdgeInsets.only(right: ticks == null ? 0 : axisWidth),
           child: SizedBox(
             height: 28,
             child: Align(
@@ -742,69 +777,77 @@ class SelectableBars extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Container(
-                height: height,
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: c.outline)),
-                ),
-                child: Stack(
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+              child: LayoutBuilder(
+                builder: (context, box) => GestureDetector(
+                  onHorizontalDragStart: (d) => _scrubTo(d.localPosition.dx, box.maxWidth),
+                  onHorizontalDragUpdate: (d) => _scrubTo(d.localPosition.dx, box.maxWidth),
+                  onHorizontalDragEnd: (_) => _lift(),
+                  onHorizontalDragCancel: () => setState(() => _scrub = null),
+                  child: Container(
+                    height: height,
+                    decoration: BoxDecoration(
+                      border: Border(bottom: BorderSide(color: c.outline)),
+                    ),
+                    child: Stack(
                       children: [
-                        for (var i = 0; i < values.length; i++)
-                          Expanded(
-                            child: Semantics(
-                              button: true,
-                              selected: i == selected,
-                              label: readouts[i],
-                              excludeSemantics: true,
-                              onTap: () => onSelect(i), // excludeSemantics drops the InkWell's own action
-                              child: InkWell(
-                                onTap: () {
-                                  if (i != selected) haptic(Haptic.tick);
-                                  onSelect(i);
-                                },
-                                child: _Column(
-                                  plot: height,
-                                  height: values[i] * scale,
-                                  color: i == selected ? c.primary : c.chartMuted,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            for (var i = 0; i < values.length; i++)
+                              Expanded(
+                                child: Semantics(
+                                  button: true,
+                                  selected: i == selected,
+                                  label: readouts[i],
+                                  excludeSemantics: true,
+                                  onTap: () => onSelect(i), // excludeSemantics drops the InkWell's own action
+                                  child: InkWell(
+                                    onTap: () {
+                                      if (i != selected) haptic(Haptic.tick);
+                                      onSelect(i);
+                                    },
+                                    child: _Column(
+                                      plot: height,
+                                      height: values[i] * scale,
+                                      color: i == selected ? c.primary : c.chartMuted,
+                                    ),
+                                  ),
                                 ),
+                              ),
+                          ],
+                        ),
+                        if (average case final a? when a > 0 && scale > 0)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: a * scale - 0.75, // centre the 1.5px line on the value
+                            child: IgnorePointer(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (averageText case final t?)
+                                    ColoredBox(
+                                      color: c.surface,
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(right: 4, bottom: 2),
+                                        child: Text(t, style: AppText.caption.copyWith(fontSize: 10, color: c.inkMuted)),
+                                      ),
+                                    ),
+                                  CustomPaint(size: const Size.fromHeight(1.5), painter: _DashPainter(c.inkMuted)),
+                                ],
                               ),
                             ),
                           ),
                       ],
                     ),
-                    if (average case final a? when a > 0 && scale > 0)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: a * scale - 0.75, // centre the 1.5px line on the value
-                        child: IgnorePointer(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (averageText case final t?)
-                                ColoredBox(
-                                  color: c.surface,
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(right: 4, bottom: 2),
-                                    child: Text(t, style: AppText.caption.copyWith(fontSize: 10, color: c.inkMuted)),
-                                  ),
-                                ),
-                              CustomPaint(size: const Size.fromHeight(1.5), painter: _DashPainter(c.inkMuted)),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
               ),
             ),
             if (ticks case final ticks?) ...[
               const SizedBox(width: 8),
               SizedBox(
-                width: _axisWidth - 8,
+                width: axisWidth - 8,
                 height: height,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -841,7 +884,7 @@ class SelectableBars extends StatelessWidget {
                   ),
                 ),
               ),
-            if (ticks != null) const SizedBox(width: _axisWidth),
+            if (ticks != null) const SizedBox(width: axisWidth),
           ],
         ),
       ],

@@ -222,7 +222,7 @@ class _ReportTabState extends State<ReportTab> {
               const SizedBox(height: 16),
               _BudgetHint(budgets, onTap: () => setState(() => _view = 'budget')),
             ],
-            if (!income && r.expense > 0) ...[const SizedBox(height: 16), _NeedSplit(r)],
+            if (!income && r.expense > 0) ...[const SizedBox(height: 16), _NeedSplit(r, month: _month, labelId: _labelId)],
             const SizedBox(height: 16),
             _Trend(
               title: income ? 'Tren pemasukan' : 'Tren pengeluaran',
@@ -284,6 +284,31 @@ class _Card extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------- per category: donut + legend
+
+/// The month's counted records of [type] (as Laporan counts them, label filter included) that
+/// also match [filter], an SQL condition on `r` and `c` whose parameters start at ?5. Newest first.
+Future<List<Map<String, dynamic>>> _monthRecords(
+  String type,
+  DateTime month,
+  String? labelId,
+  String filter,
+  List<Object?> filterArgs,
+) {
+  final (start, end) = periodRange('month', month);
+  return db.getAll(
+    '''
+    SELECT r.amount, r.note, r.occurred_at, a.name AS account, c.name AS category
+    FROM records r
+    JOIN accounts a ON a.id = r.account_id
+    LEFT JOIN categories c ON c.id = r.category_id
+    WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND r.type = ?1
+      AND julianday(r.occurred_at) >= julianday(?2) AND julianday(r.occurred_at) < julianday(?3)
+      AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(r.label_ids) l WHERE l.value = ?4))
+      AND $filter
+    ORDER BY julianday(r.occurred_at) DESC''',
+    [type, utcIso(start), utcIso(end), labelId, ...filterArgs],
+  );
+}
 
 class _CategoryCard extends StatefulWidget {
   const _CategoryCard({
@@ -358,26 +383,12 @@ class _CategoryCardState extends State<_CategoryCard> {
 
   Future<void> _showRecords(List<CategoryTotal> parts, int i) async {
     final members = _members(parts, i);
-    final (start, end) = periodRange('month', widget.month);
-    final rows = await db.getAll(
-      '''
-      SELECT r.amount, r.note, r.occurred_at, a.name AS account, c.name AS category
-      FROM records r
-      JOIN accounts a ON a.id = r.account_id
-      LEFT JOIN categories c ON c.id = r.category_id
-      WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND r.type = ?1
-        AND julianday(r.occurred_at) >= julianday(?2) AND julianday(r.occurred_at) < julianday(?3)
-        AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(r.label_ids) l WHERE l.value = ?4))
-        AND (r.category_id IN (SELECT value FROM json_each(?5)) OR (?6 = 1 AND r.category_id IS NULL))
-      ORDER BY julianday(r.occurred_at) DESC''',
-      [
-        widget.type,
-        utcIso(start),
-        utcIso(end),
-        widget.labelId,
-        jsonEncode([for (final m in members) ?m.id]),
-        members.any((m) => m.id == null) ? 1 : 0,
-      ],
+    final rows = await _monthRecords(
+      widget.type,
+      widget.month,
+      widget.labelId,
+      '(r.category_id IN (SELECT value FROM json_each(?5)) OR (?6 = 1 AND r.category_id IS NULL))',
+      [jsonEncode([for (final m in members) ?m.id]), members.any((m) => m.id == null) ? 1 : 0],
     );
     if (!mounted) return;
     final amount = parts[i].amount;
@@ -700,11 +711,29 @@ class _BudgetHint extends StatelessWidget {
   }
 }
 
-/// Segmented bar (14px, 3px gaps) above a list that carries every figure.
+/// Segmented bar (14px, 3px gaps) above a list that carries every figure. A segment or a row
+/// lists that level's expenses.
 class _NeedSplit extends StatelessWidget {
-  const _NeedSplit(this.r);
+  const _NeedSplit(this.r, {required this.month, required this.labelId});
 
   final MonthReport r;
+  final DateTime month;
+  final String? labelId;
+
+  Future<void> _showRecords(BuildContext context, String? level) async {
+    haptic(Haptic.tick);
+    // Records without a category have no level either: they count as "Belum diberi level".
+    final rows = await _monthRecords('expense', month, labelId, 'c.need_level IS ?5', [level]);
+    if (!context.mounted) return;
+    final amount = r.byNeedLevel[level] ?? 0;
+    await showRecordsSheet(
+      context,
+      title: '${needLevelLabels[level]} · ${DateFormat('MMMM', 'id_ID').format(month)}',
+      summary: '${rows.length} transaksi · ${formatAmount(amount)} · ${percentOf(amount, r.expense)} dari pengeluaran',
+      rows: rows,
+      emptyText: 'Tidak ada transaksi.',
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -729,8 +758,11 @@ class _NeedSplit extends StatelessWidget {
                   if (i > 0) const SizedBox(width: 3),
                   Expanded(
                     flex: (p.$2 * 1000 / r.expense).round().clamp(1, 1000),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(color: colors[p.$1], borderRadius: BorderRadius.circular(7)),
+                    child: GestureDetector(
+                      onTap: () => _showRecords(context, p.$1),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(color: colors[p.$1], borderRadius: BorderRadius.circular(7)),
+                      ),
                     ),
                   ),
                 ],
@@ -740,23 +772,29 @@ class _NeedSplit extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         for (final p in parts)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              children: [
-                Container(width: 10, height: 10, decoration: BoxDecoration(color: colors[p.$1], shape: BoxShape.circle)),
-                const SizedBox(width: 8),
-                Expanded(child: Text(needLevelLabels[p.$1]!, style: AppText.label)),
-                Text(formatAmount(p.$2), style: AppText.label.copyWith(color: c.inkMuted)),
-                SizedBox(
-                  width: 44,
-                  child: Text(
-                    percentOf(p.$2, r.expense),
-                    textAlign: TextAlign.end,
-                    style: AppText.label.copyWith(fontWeight: FontWeight.w600, fontFeatures: const [FontFeature.tabularFigures()]),
+          InkWell(
+            onTap: () => _showRecords(context, p.$1),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Container(width: 10, height: 10, decoration: BoxDecoration(color: colors[p.$1], shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(needLevelLabels[p.$1]!, style: AppText.label)),
+                  Text(formatAmount(p.$2), style: AppText.label.copyWith(color: c.inkMuted)),
+                  SizedBox(
+                    width: 44,
+                    child: Text(
+                      percentOf(p.$2, r.expense),
+                      textAlign: TextAlign.end,
+                      style: AppText.label.copyWith(fontWeight: FontWeight.w600, fontFeatures: const [FontFeature.tabularFigures()]),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right, size: 16, color: c.inkMuted),
+                ],
+              ),
             ),
           ),
       ],
