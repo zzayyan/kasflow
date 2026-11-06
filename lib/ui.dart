@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -247,6 +249,21 @@ IconData categoryIcon(String? name, String type, [String? icon]) {
   return type == 'income' ? Icons.south_west : Icons.receipt_outlined;
 }
 
+/// Tap feedback strengths: [tick] for a pick, [click] for a save, [heavy] for a delete.
+enum Haptic { tick, click, heavy }
+
+/// Pengaturan's "Getar saat mengetuk" (pref 'haptics'); on unless turned off.
+final hapticsOn = ValueNotifier(true);
+
+const _native = MethodChannel('cashflow/notifications');
+
+/// A short vibration played by MainActivity.kt. Flutter's HapticFeedback goes through
+/// performHapticFeedback, which Android drops when the system touch vibration is off.
+void haptic(Haptic kind) {
+  if (!hapticsOn.value) return;
+  unawaited(_native.invokeMethod<void>('haptic', kind.name).catchError((Object _) {})); // no vibrator: no feedback
+}
+
 /// [d], or no time at all when the phone asks for no animations (Hapus animasi).
 Duration motion(BuildContext context, Duration d) => MediaQuery.disableAnimationsOf(context) ? Duration.zero : d;
 
@@ -371,7 +388,7 @@ Future<T?> chooseOne<T>(BuildContext context, String title, List<(T, String, Str
                     : null,
                 selected: value == current,
                 onTap: () {
-                  HapticFeedback.selectionClick();
+                  haptic(Haptic.tick);
                   Navigator.pop(context, value);
                 },
               ),
@@ -630,7 +647,7 @@ class PillSwitch<T> extends StatelessWidget {
                     child: TextButton(
                       onPressed: () {
                         if (option == value) return;
-                        HapticFeedback.selectionClick();
+                        haptic(Haptic.tick);
                         onChanged(option);
                       },
                       style: TextButton.styleFrom(
@@ -745,7 +762,7 @@ class SelectableBars extends StatelessWidget {
                               onTap: () => onSelect(i), // excludeSemantics drops the InkWell's own action
                               child: InkWell(
                                 onTap: () {
-                                  if (i != selected) HapticFeedback.selectionClick();
+                                  if (i != selected) haptic(Haptic.tick);
                                   onSelect(i);
                                 },
                                 child: _Column(

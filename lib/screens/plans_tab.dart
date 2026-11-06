@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../db.dart';
@@ -1041,7 +1040,7 @@ class _GoalFormState extends State<GoalForm> {
         [currentUserId, name, target, accountId, _date == null ? null : dateOnly(_date!), now, now],
       );
     });
-    unawaited(HapticFeedback.lightImpact()); // saved
+    haptic(Haptic.click); // saved
     if (mounted) Navigator.pop(context);
   }
 
@@ -1224,7 +1223,7 @@ class _BudgetFormState extends State<BudgetForm> {
         WHERE id = ?''',
         [name, _period, amount, jsonEncode([..._selected]), jsonEncode([..._labelIds]), now, b['id']],
       );
-      unawaited(HapticFeedback.lightImpact()); // saved
+      haptic(Haptic.click); // saved
     if (mounted) Navigator.pop(context);
       return;
     }
@@ -1245,7 +1244,7 @@ class _BudgetFormState extends State<BudgetForm> {
         now,
       ],
     );
-    unawaited(HapticFeedback.lightImpact()); // saved
+    haptic(Haptic.click); // saved
     if (mounted) Navigator.pop(context);
   }
 

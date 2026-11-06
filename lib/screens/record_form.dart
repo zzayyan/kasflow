@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:logging/logging.dart';
@@ -30,7 +29,7 @@ Future<bool> confirmDeleteRecord(BuildContext context, String id) async {
     ),
   );
   if (ok != true) return false;
-  unawaited(HapticFeedback.mediumImpact());
+  haptic(Haptic.heavy);
   await db.execute('DELETE FROM records WHERE id = ?', [id]);
   return true;
 }
@@ -272,7 +271,7 @@ class _RecordFormState extends State<RecordForm> {
   }
 
   void _pickCategory(String? id) {
-    if (id != _categoryId) HapticFeedback.selectionClick();
+    if (id != _categoryId) haptic(Haptic.tick);
     setState(() {
       _categoryId = id;
       _categoryPicked = true;
@@ -387,7 +386,7 @@ class _RecordFormState extends State<RecordForm> {
     if (_categoryPicked && picked != null && typedNote && changed && note.isNotEmpty) {
       if (guessCategoryId(note, _type, widget.categories) != picked) await learnKeyword(note, picked);
     }
-    unawaited(HapticFeedback.lightImpact()); // saved
+    haptic(Haptic.click); // saved
     if (mounted) Navigator.pop(context);
   }
 

@@ -4,7 +4,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../db.dart';
@@ -328,7 +327,7 @@ class _CategoryCardState extends State<_CategoryCard> {
   }
 
   void _pick(int i) {
-    HapticFeedback.selectionClick();
+    haptic(Haptic.tick);
     setState(() => _picked = i == _picked ? null : i);
   }
 

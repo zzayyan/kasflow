@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../home_widget.dart';
 import '../notifications.dart';
@@ -82,7 +81,7 @@ class _HomePageState extends State<HomePage> {
           selected: _tab,
           dueBills: snap.data ?? 0,
           onSelect: (i) {
-            if (i != _tab) HapticFeedback.selectionClick();
+            if (i != _tab) haptic(Haptic.tick);
             setState(() => _tab = i);
           },
           onAdd: () => showRecordForm(context),

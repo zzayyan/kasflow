@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../db.dart';
@@ -357,7 +356,7 @@ class _AccountFormState extends State<AccountForm> {
         [name, _type, initial, _inReports ? 0 : 1, now, _a['id']],
       );
     }
-    unawaited(HapticFeedback.lightImpact()); // saved
+    haptic(Haptic.click); // saved
     if (mounted) Navigator.pop(context);
   }
 

@@ -6,6 +6,7 @@ import 'db.dart';
 import 'screens/home_page.dart';
 import 'screens/onboarding.dart';
 import 'theme.dart';
+import 'ui.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +21,7 @@ Future<void> main() async {
   await initializeDateFormatting('id_ID');
   await openDatabase();
   themeMode.value = themeModeFromPref(await getPref('theme'));
+  hapticsOn.value = await getPref('haptics') != '0';
   runApp(const App());
 }
 

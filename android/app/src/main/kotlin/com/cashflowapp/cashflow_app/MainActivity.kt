@@ -5,6 +5,9 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import org.json.JSONArray
 import io.flutter.embedding.android.FlutterActivity
@@ -24,6 +27,30 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.action == AllowanceWidget.QUICK_INPUT) channel?.invokeMethod("quickInput", null)
+    }
+
+    // The app's own tap feedback (lib/ui.dart haptic). View.performHapticFeedback obeys the system
+    // touch-vibration switch, which many people turn off for the keyboard; a vibration of usage
+    // UNKNOWN does not, so Cashflow's own toggle in Pengaturan decides instead.
+    private fun haptic(kind: String) {
+        val vibrator = if (Build.VERSION.SDK_INT >= 31) {
+            (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(VIBRATOR_SERVICE) as Vibrator
+        }
+        if (!vibrator.hasVibrator()) return
+        if (Build.VERSION.SDK_INT >= 29) {
+            val effect = when (kind) {
+                "click" -> VibrationEffect.EFFECT_CLICK
+                "heavy" -> VibrationEffect.EFFECT_HEAVY_CLICK
+                else -> VibrationEffect.EFFECT_TICK
+            }
+            vibrator.vibrate(VibrationEffect.createPredefined(effect))
+        } else {
+            val ms = when (kind) { "click" -> 20L; "heavy" -> 35L; else -> 10L }
+            vibrator.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -59,6 +86,10 @@ class MainActivity : FlutterActivity() {
                         ) {
                             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
                         }
+                        result.success(null)
+                    }
+                    "haptic" -> {
+                        haptic(call.arguments as String)
                         result.success(null)
                     }
                     else -> result.notImplemented()

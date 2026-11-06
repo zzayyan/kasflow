@@ -188,6 +188,20 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                 ),
               ),
             ),
+            MergeSemantics(
+              child: _Item(
+                Icons.vibration,
+                'Getar saat mengetuk',
+                trailing: Switch(
+                  value: hapticsOn.value,
+                  onChanged: (on) {
+                    setState(() => hapticsOn.value = on);
+                    if (on) haptic(Haptic.tick); // a sample of what was just turned on
+                    unawaited(setPref('haptics', on ? '1' : '0'));
+                  },
+                ),
+              ),
+            ),
             _Item(
               Icons.schedule,
               'Jam pengingat tagihan',
