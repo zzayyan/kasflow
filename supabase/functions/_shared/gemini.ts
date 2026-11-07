@@ -6,31 +6,9 @@ const MODEL = "gemini-3.5-flash-lite";
 /** A piece of the user's turn: text, or an inline image such as a receipt photo. */
 export type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
 
-/** Asks Gemini [model] to answer [input] as JSON matching [schema], and returns the response to send
- * back. With [timeoutMs], a slower answer becomes a 504, so the caller can fall back in time. */
-export async function askGemini(
-  instruction: string,
-  input: string | Part[],
-  schema: object,
-  model = MODEL,
-  timeoutMs?: number,
-): Promise<Response> {
-  try {
-    return await ask(instruction, input, schema, model, timeoutMs);
-  } catch (e) {
-    console.error("gemini", model, String(e)); // a timeout, or the network failing
-    return Response.json({ error: "gemini unavailable" }, { status: 504 });
-  }
-}
-
-async function ask(
-  instruction: string,
-  input: string | Part[],
-  schema: object,
-  model: string,
-  timeoutMs?: number,
-): Promise<Response> {
-  const gemini = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+/** Asks Gemini to answer [input] as JSON matching [schema], and returns the response to send back. */
+export async function askGemini(instruction: string, input: string | Part[], schema: object): Promise<Response> {
+  const gemini = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": Deno.env.get("GEMINI_API_KEY") ?? "" },
     body: JSON.stringify({
@@ -38,7 +16,6 @@ async function ask(
       contents: [{ role: "user", parts: typeof input === "string" ? [{ text: input }] : input }],
       generationConfig: { responseMimeType: "application/json", responseJsonSchema: schema },
     }),
-    signal: timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs),
   });
   if (!gemini.ok) {
     console.error("gemini", gemini.status, await gemini.text());
