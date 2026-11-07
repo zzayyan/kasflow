@@ -11,6 +11,7 @@ import '../home_widget.dart';
 import '../money.dart';
 import '../notifications.dart';
 import '../quick_input.dart';
+import '../reports.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'accounts_tab.dart';
@@ -43,26 +44,54 @@ class _RecordsTabState extends State<RecordsTab> {
   static Stream<List<Map<String, dynamic>>> _latest() =>
       db.watch('$_select ORDER BY julianday(r.occurred_at) DESC LIMIT 500');
 
-  /// Every record, however old, whose note, category, account, label or amount holds [text].
+  /// A record's date inside a month, taking the month's start and end as parameters [from] and [to].
+  static String _within(int from, int to) =>
+      'julianday(r.occurred_at) >= julianday(?$from) AND julianday(r.occurred_at) < julianday(?$to)';
+
+  /// Every record of [month], however many.
+  static Stream<List<Map<String, dynamic>>> _inMonth(DateTime month) {
+    final (start, end) = periodRange('month', month);
+    return db.watch(
+      '$_select WHERE ${_within(1, 2)} ORDER BY julianday(r.occurred_at) DESC',
+      parameters: [utcIso(start), utcIso(end)],
+    );
+  }
+
+  /// Every record, however old (only those of [month] when given), whose note, category, account, label or
+  /// amount holds [text].
   /// ponytail: % and _ typed in the search act as LIKE wildcards; escape them if that ever bites.
-  static Stream<List<Map<String, dynamic>>> _matching(String text) {
+  static Stream<List<Map<String, dynamic>>> _matching(String text, DateTime? month) {
     final digits = text.replaceAll(RegExp(r'[^0-9]'), '');
+    final range = month == null ? null : periodRange('month', month);
     return db.watch(
       '''
       $_select
-      WHERE lower(coalesce(r.note, '')) LIKE ?1 OR lower(coalesce(c.name, '')) LIKE ?1
+      WHERE (lower(coalesce(r.note, '')) LIKE ?1 OR lower(coalesce(c.name, '')) LIKE ?1
         OR lower(coalesce(a.name, '')) LIKE ?1 OR lower(coalesce(t.name, '')) LIKE ?1
         OR EXISTS (SELECT 1 FROM json_each(r.label_ids) j JOIN labels l ON l.id = j.value
           WHERE lower('#' || l.name) LIKE ?1)
-        OR (?2 != '' AND CAST(r.amount / 100 AS TEXT) LIKE '%' || ?2 || '%')
+        OR (?2 != '' AND CAST(r.amount / 100 AS TEXT) LIKE '%' || ?2 || '%'))
+        ${range == null ? '' : 'AND ${_within(3, 4)}'}
       ORDER BY julianday(r.occurred_at) DESC LIMIT $_searchLimit''',
-      parameters: ['%${text.toLowerCase()}%', digits],
+      parameters: [
+        '%${text.toLowerCase()}%',
+        digits,
+        if (range != null) ...[utcIso(range.$1), utcIso(range.$2)],
+      ],
     );
   }
+
+  /// The rows for a picked [month] (null: none picked) and a search [text] (empty: not searching).
+  static Stream<List<Map<String, dynamic>>> _watch(DateTime? month, String text) => text.isNotEmpty
+      ? _matching(text, month)
+      : month == null
+      ? _latest()
+      : _inMonth(month);
 
   static const _searchLimit = 300;
 
   String? _type; // filter; null shows every type
+  DateTime? _month; // filter: the first day of the picked month; null shows every month, newest first
   bool _searching = false;
   String _query = '';
   late Stream<List<Map<String, dynamic>>> _rows = _latest(); // a new watch per State: one listener each
@@ -84,7 +113,7 @@ class _RecordsTabState extends State<RecordsTab> {
       if (!mounted || q == _query) return;
       setState(() {
         _query = q;
-        _rows = q.isEmpty ? _latest() : _matching(q);
+        _rows = _watch(_month, q);
       });
     });
   }
@@ -95,14 +124,26 @@ class _RecordsTabState extends State<RecordsTab> {
     setState(() {
       _searching = false;
       _query = '';
-      _rows = _latest();
+      _rows = _watch(_month, '');
     });
+  }
+
+  void _setMonth(DateTime? month) => setState(() {
+    _month = month;
+    _rows = _watch(month, _query);
+  });
+
+  Future<void> _pickMonth() async {
+    final picked = await pickMonth(context, _month);
+    if (picked != null) _setMonth(picked);
   }
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     const pill = OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(23)), borderSide: BorderSide.none);
+    final month = _month;
+    final inMonth = month == null ? '' : ' di ${DateFormat('MMMM yyyy', 'id_ID').format(month)}';
     return PopScope(
       // Back closes the search first, then leaves as usual.
       canPop: !_searching,
@@ -144,6 +185,13 @@ class _RecordsTabState extends State<RecordsTab> {
                       : Row(
                           children: [
                             Expanded(child: Text('Transaksi', style: AppText.title)),
+                            IconButton(
+                              tooltip: 'Pilih bulan',
+                              onPressed: _pickMonth,
+                              style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
+                              icon: Icon(Icons.calendar_today_outlined, size: 20, color: c.ink),
+                            ),
+                            const SizedBox(width: AppSpace.tight),
                             // The round search button of the "E · Transaksi" artboard.
                             IconButton(
                               tooltip: 'Cari transaksi',
@@ -160,6 +208,17 @@ class _RecordsTabState extends State<RecordsTab> {
                   spacing: AppSpace.tight,
                   runSpacing: AppSpace.tight,
                   children: [
+                    if (month case final m?)
+                      InputChip(
+                        label: Text(DateFormat('MMMM yyyy', 'id_ID').format(m)),
+                        selected: true,
+                        showCheckmark: false,
+                        labelStyle: AppText.label.copyWith(fontSize: 14, color: c.onPrimary, fontWeight: FontWeight.w500),
+                        deleteIconColor: c.onPrimary,
+                        deleteButtonTooltipMessage: 'Hapus filter bulan',
+                        onPressed: _pickMonth,
+                        onDeleted: () => _setMonth(null),
+                      ),
                     for (final (type, label) in const [
                       (null, 'Semua'),
                       ('expense', 'Keluar'),
@@ -185,7 +244,7 @@ class _RecordsTabState extends State<RecordsTab> {
                   Padding(
                     padding: const EdgeInsets.only(left: 4, bottom: 10),
                     child: Text(
-                      '${rows.length}${snap.data!.length == _searchLimit ? '+' : ''} transaksi cocok dengan "$_query"',
+                      '${rows.length}${snap.data!.length == _searchLimit ? '+' : ''} transaksi cocok dengan "$_query"$inMonth',
                       style: AppText.label.copyWith(color: c.inkMuted),
                     ),
                   ),
@@ -196,10 +255,12 @@ class _RecordsTabState extends State<RecordsTab> {
                     padding: const EdgeInsets.symmetric(vertical: 32),
                     child: Text(
                       _query.isNotEmpty
-                          ? 'Tidak ada transaksi yang cocok dengan "$_query".'
-                          : _type == null
-                          ? 'Belum ada transaksi. Tekan + untuk mencatat.'
-                          : 'Tidak ada transaksi jenis ini.',
+                          ? 'Tidak ada transaksi yang cocok dengan "$_query"$inMonth.'
+                          : _type != null
+                          ? 'Tidak ada transaksi jenis ini$inMonth.'
+                          : month != null
+                          ? 'Tidak ada transaksi$inMonth.'
+                          : 'Belum ada transaksi. Tekan + untuk mencatat.',
                       textAlign: TextAlign.center,
                       style: AppText.body.copyWith(color: c.inkMuted),
                     ),

@@ -366,6 +366,15 @@ class SheetTitle extends StatelessWidget {
   );
 }
 
+/// The current month and the 23 before it as a [chooseOne] list, [current] checked. Null when dismissed.
+Future<DateTime?> pickMonth(BuildContext context, DateTime? current) {
+  final now = DateTime.now();
+  final months = [for (var i = 0; i < 24; i++) DateTime(now.year, now.month - i)];
+  return chooseOne(context, 'Pilih bulan', [
+    for (final m in months) (m, DateFormat('MMMM yyyy', 'id_ID').format(m), null),
+  ], current);
+}
+
 /// A list sheet to choose one option from: (value, name, trailing text). Null when dismissed.
 Future<T?> chooseOne<T>(BuildContext context, String title, List<(T, String, String?)> options, T? current) {
   // Closing the sheet hands focus back to the field focused before it, which brings the keyboard back over the form.

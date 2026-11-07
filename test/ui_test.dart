@@ -3,8 +3,12 @@ import 'package:cashflow_app/ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 
 void main() {
+  setUpAll(() => initializeDateFormatting('id_ID'));
+
   group('AmountInputFormatter', () {
     const f = AmountInputFormatter();
     TextEditingValue type(String old, String text, int cursor) => f.formatEditUpdate(
@@ -124,4 +128,34 @@ void main() {
     expect(ticks, isNotEmpty);
     expect(ticks.toSet(), {'tick'});
   });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('pickMonth lists 24 months, newest first, and returns the one tapped ($brightness)', (tester) async {
+      DateTime? picked;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(brightness),
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => picked = await pickMonth(context, null),
+              child: const Text('buka'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('buka'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pilih bulan'), findsOneWidget);
+      final now = DateTime.now();
+      final names = [for (var i = 0; i < 24; i++) DateFormat('MMMM yyyy', 'id_ID').format(DateTime(now.year, now.month - i))];
+      final tiles = tester.widgetList<ListTile>(find.byType(ListTile)).toList();
+      expect(tiles.length, lessThanOrEqualTo(24)); // the list scrolls, so only the first rows are built
+      for (var i = 0; i < tiles.length; i++) {
+        expect((tiles[i].title! as Text).data, names[i]);
+      }
+      await tester.tap(find.text(names[1]));
+      await tester.pumpAndSettle();
+      expect(picked, DateTime(now.year, now.month - 1));
+    });
+  }
 }

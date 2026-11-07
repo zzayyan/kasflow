@@ -145,11 +145,7 @@ class _ReportTabState extends State<ReportTab> {
   });
 
   Future<void> _pickMonth() async {
-    final now = DateTime.now();
-    final months = [for (var i = 0; i < 24; i++) DateTime(now.year, now.month - i)];
-    final picked = await chooseOne(context, 'Pilih bulan', [
-      for (final m in months) (m, DateFormat('MMMM yyyy', 'id_ID').format(m), null),
-    ], _month);
+    final picked = await pickMonth(context, _month);
     if (picked != null) _showMonth(picked);
   }
 
