@@ -61,6 +61,59 @@ void main() {
       expect(find.widgetWithText(TextField, 'Ayam Goreng'), findsOneWidget);
     });
 
+    // Issue #1: picking a category put the keyboard back over the form.
+    testWidgets('Catat: picking a category from the list hides the keyboard ($brightness)', (tester) async {
+      await _pump(tester, const RecordForm(accounts: _accounts, categories: _categories, labels: []), brightness);
+      await tester.tap(find.text('Catatan'));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+      await tester.tap(find.text('Pilih kategori'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(of: find.byType(ListTile), matching: find.text('Tagihan')));
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
+    // chooseOne itself drops focus, so every picker sheet (here Akun) keeps the keyboard down.
+    testWidgets('Catat: picking an account hides the keyboard ($brightness)', (tester) async {
+      await _pump(tester, const RecordForm(accounts: _accounts, categories: _categories, labels: []), brightness);
+      await tester.tap(find.text('Catatan'));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+      await tester.tap(find.text('BRI'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(of: find.byType(ListTile), matching: find.text('BRI')));
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
+    testWidgets('Catat: a tap on empty form space or a drag hides the keyboard ($brightness)', (tester) async {
+      await _pump(tester, const RecordForm(accounts: _accounts, categories: _categories, labels: []), brightness);
+      await tester.tap(find.text('Catatan'));
+      await tester.pump();
+      await tester.tap(find.text('Kategori lain')); // a plain label
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isFalse);
+      await tester.tap(find.text('Catatan'));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+      await tester.drag(find.byType(ListView).first, const Offset(0, -200));
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
+    testWidgets('Catat: picking a category chip hides the keyboard ($brightness)', (tester) async {
+      await _pump(tester, const RecordForm(accounts: _accounts, categories: _categories, labels: []), brightness);
+      await tester.tap(find.text('Catatan'));
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+      final chip = find.widgetWithText(ChoiceChip, 'Tagihan');
+      await tester.ensureVisible(chip);
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
     testWidgets('Tagihan sheet builds and its rows focus their fields ($brightness)', (tester) async {
       await _pump(tester, const Scaffold(body: BillForm(accounts: _accounts, categories: _categories)), brightness);
       expect(find.text('Tagihan baru'), findsOneWidget);

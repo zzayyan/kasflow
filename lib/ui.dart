@@ -368,6 +368,8 @@ class SheetTitle extends StatelessWidget {
 
 /// A list sheet to choose one option from: (value, name, trailing text). Null when dismissed.
 Future<T?> chooseOne<T>(BuildContext context, String title, List<(T, String, String?)> options, T? current) {
+  // Closing the sheet hands focus back to the field focused before it, which brings the keyboard back over the form.
+  FocusManager.instance.primaryFocus?.unfocus();
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,

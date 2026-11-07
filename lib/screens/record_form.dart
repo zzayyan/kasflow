@@ -289,6 +289,7 @@ class _RecordFormState extends State<RecordForm> {
   }
 
   void _pickCategory(String? id) {
+    FocusManager.instance.primaryFocus?.unfocus(); // a chip takes no focus, so the keyboard would stay up
     if (id != _categoryId) haptic(Haptic.tick);
     setState(() {
       _categoryId = id;
@@ -441,171 +442,176 @@ class _RecordFormState extends State<RecordForm> {
     ];
     return Scaffold(
       appBar: pageAppBar(context, _editing ? 'Ubah transaksi' : 'Catat transaksi'),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(AppSpace.page, 8, AppSpace.page, 20),
-        children: [
-          if (_showQuick) ...[
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: 6),
-              child: Text(
-                'Ketik cepat, kolom di bawah terisi sendiri',
-                style: AppText.caption.copyWith(color: c.inkMuted),
+      // A tap on empty form space, or a drag, puts the keyboard away (issue #1).
+      body: GestureDetector(
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.fromLTRB(AppSpace.page, 8, AppSpace.page, 20),
+          children: [
+            if (_showQuick) ...[
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 6),
+                child: Text(
+                  'Ketik cepat, kolom di bawah terisi sendiri',
+                  style: AppText.caption.copyWith(color: c.inkMuted),
+                ),
               ),
-            ),
-            TextField(
-              controller: _quick,
-              autofocus: true,
-              onChanged: _onQuickChanged,
-              style: AppText.body,
-              decoration: InputDecoration(
-                hintText: 'bakso 25rb pakai gopay',
-                fillColor: c.primarySoft,
-                prefixIcon: Icon(Icons.bolt, size: 20, color: c.primary),
-                suffixIcon: _reading
-                    ? Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: SizedBox.square(
-                          dimension: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: c.primary),
+              TextField(
+                controller: _quick,
+                autofocus: true,
+                onChanged: _onQuickChanged,
+                style: AppText.body,
+                decoration: InputDecoration(
+                  hintText: 'bakso 25rb pakai gopay',
+                  fillColor: c.primarySoft,
+                  prefixIcon: Icon(Icons.bolt, size: 20, color: c.primary),
+                  suffixIcon: _reading
+                      ? Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: SizedBox.square(
+                            dimension: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: c.primary),
+                          ),
+                        )
+                      : IconButton(
+                          tooltip: 'Foto struk',
+                          onPressed: _scanReceipt,
+                          icon: Icon(Icons.photo_camera_outlined, color: c.primary),
                         ),
-                      )
-                    : IconButton(
-                        tooltip: 'Foto struk',
-                        onPressed: _scanReceipt,
-                        icon: Icon(Icons.photo_camera_outlined, color: c.primary),
-                      ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                border: const OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(26)),
-                  borderSide: BorderSide.none,
-                ),
-                enabledBorder: const OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(26)),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: const BorderRadius.all(Radius.circular(26)),
-                  borderSide: BorderSide(color: c.primary, width: 1.5),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                  border: const OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(26)),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: const OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(26)),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: const BorderRadius.all(Radius.circular(26)),
+                    borderSide: BorderSide(color: c.primary, width: 1.5),
+                  ),
                 ),
               ),
+              const SizedBox(height: 18),
+            ],
+            PillSwitch(
+              options: const [('expense', 'Keluar'), ('income', 'Masuk'), ('transfer', 'Transfer')],
+              value: _type,
+              onChanged: (type) => setState(() {
+                _type = type;
+                _categoryPicked = false;
+                _categoryId = type == 'transfer' ? null : guessCategoryId(_note.text, type, widget.categories);
+              }),
             ),
-            const SizedBox(height: 18),
-          ],
-          PillSwitch(
-            options: const [('expense', 'Keluar'), ('income', 'Masuk'), ('transfer', 'Transfer')],
-            value: _type,
-            onChanged: (type) => setState(() {
-              _type = type;
-              _categoryPicked = false;
-              _categoryId = type == 'transfer' ? null : guessCategoryId(_note.text, type, widget.categories);
-            }),
-          ),
-          const SizedBox(height: 8),
-          // The whole block, not just the digits, takes a tap: an empty field is one "0" wide.
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              _amount.selection = TextSelection.collapsed(offset: _amount.text.length);
-              _amountFocus.requestFocus();
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Column(
-                children: [
-                  Text('Nominal', style: AppText.label.copyWith(color: c.inkMuted)),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text(
-                        'Rp',
-                        style: AppText.title.copyWith(fontSize: 22, fontWeight: FontWeight.w500, color: c.inkMuted),
-                      ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: IntrinsicWidth(
-                          child: TextField(
-                            controller: _amount,
-                            focusNode: _amountFocus,
-                            autofocus: !_showQuick && !_editing && _amount.text.isEmpty,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                            inputFormatters: const [AmountInputFormatter()],
-                            style: AppText.amountXl.copyWith(color: c.ink),
-                            // The hint takes the digits' size, not the theme's body text.
-                            decoration: bareField('0').copyWith(hintStyle: AppText.amountXl.copyWith(color: c.inkMuted)),
+            const SizedBox(height: 8),
+            // The whole block, not just the digits, takes a tap: an empty field is one "0" wide.
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                _amount.selection = TextSelection.collapsed(offset: _amount.text.length);
+                _amountFocus.requestFocus();
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Column(
+                  children: [
+                    Text('Nominal', style: AppText.label.copyWith(color: c.inkMuted)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          'Rp',
+                          style: AppText.title.copyWith(fontSize: 22, fontWeight: FontWeight.w500, color: c.inkMuted),
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: IntrinsicWidth(
+                            child: TextField(
+                              controller: _amount,
+                              focusNode: _amountFocus,
+                              autofocus: !_showQuick && !_editing && _amount.text.isEmpty,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              inputFormatters: const [AmountInputFormatter()],
+                              style: AppText.amountXl.copyWith(color: c.ink),
+                              // The hint takes the digits' size, not the theme's body text.
+                              decoration: bareField('0').copyWith(hintStyle: AppText.amountXl.copyWith(color: c.inkMuted)),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          FormCard(
-            children: [
-              FormRow(
-                icon: Icons.edit_outlined,
-                label: 'Catatan',
-                focusNode: _noteFocus,
-                // Earlier notes that continue what is typed ("ayam" -> "Ayam Goreng") drop down
-                // under the row; picking one fills the note and guesses its category.
-                child: LayoutBuilder(
-                  builder: (context, box) => RawAutocomplete<String>(
-                    textEditingController: _note,
-                    focusNode: _noteFocus,
-                    optionsBuilder: (value) => noteSuggestions(widget.notes, value.text),
-                    onSelected: (note) {
-                      haptic(Haptic.tick);
-                      _onNoteChanged(note);
-                    },
-                    fieldViewBuilder: (context, controller, focusNode, _) => TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      onChanged: _onNoteChanged,
-                      style: AppText.body.copyWith(fontWeight: FontWeight.w500),
-                      decoration: bareField('contoh: bakso, bensin, token PLN'),
-                    ),
-                    optionsViewBuilder: (context, onSelected, options) => Align(
-                      alignment: Alignment.topLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Material(
-                          color: c.surface,
-                          elevation: 6,
-                          shadowColor: Colors.black26,
-                          borderRadius: BorderRadius.circular(AppRadius.input),
-                          clipBehavior: Clip.antiAlias,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: box.maxWidth, maxHeight: 260),
-                            child: ListView(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              shrinkWrap: true,
-                              children: [
-                                for (final note in options)
-                                  InkWell(
-                                    onTap: () => onSelected(note),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                      child: Row(
-                                        children: [
-                                          Icon(Icons.history, size: 18, color: c.inkMuted),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Text(
-                                              note,
-                                              style: AppText.body,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
+            const SizedBox(height: 8),
+            FormCard(
+              children: [
+                FormRow(
+                  icon: Icons.edit_outlined,
+                  label: 'Catatan',
+                  focusNode: _noteFocus,
+                  // Earlier notes that continue what is typed ("ayam" -> "Ayam Goreng") drop down
+                  // under the row; picking one fills the note and guesses its category.
+                  child: LayoutBuilder(
+                    builder: (context, box) => RawAutocomplete<String>(
+                      textEditingController: _note,
+                      focusNode: _noteFocus,
+                      optionsBuilder: (value) => noteSuggestions(widget.notes, value.text),
+                      onSelected: (note) {
+                        haptic(Haptic.tick);
+                        _onNoteChanged(note);
+                      },
+                      fieldViewBuilder: (context, controller, focusNode, _) => TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        onChanged: _onNoteChanged,
+                        style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                        decoration: bareField('contoh: bakso, bensin, token PLN'),
+                      ),
+                      optionsViewBuilder: (context, onSelected, options) => Align(
+                        alignment: Alignment.topLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Material(
+                            color: c.surface,
+                            elevation: 6,
+                            shadowColor: Colors.black26,
+                            borderRadius: BorderRadius.circular(AppRadius.input),
+                            clipBehavior: Clip.antiAlias,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(maxWidth: box.maxWidth, maxHeight: 260),
+                              child: ListView(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                shrinkWrap: true,
+                                children: [
+                                  for (final note in options)
+                                    InkWell(
+                                      onTap: () => onSelected(note),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.history, size: 18, color: c.inkMuted),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                note,
+                                                style: AppText.body,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
                                             ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -613,136 +619,136 @@ class _RecordFormState extends State<RecordForm> {
                     ),
                   ),
                 ),
-              ),
-              if (!transfer)
-                FormRow(
-                  icon: categoryIcon(
-                    category,
-                    _type,
-                    widget.categories.where((x) => x['id'] == _categoryId).firstOrNull?['icon'] as String?,
-                  ),
-                  strong: true,
-                  label: 'Kategori',
-                  value: category ?? 'Pilih kategori',
-                  badge: category != null && !_categoryPicked ? 'ditebak dari catatan' : null,
-                  onTap: () async {
-                    final id = await chooseOne(context, 'Kategori', [
-                      for (final x in categories) (x['id'] as String, x['name'] as String, null),
-                    ], _categoryId);
-                    if (id != null) _pickCategory(id);
-                  },
-                ),
-              FormRow(
-                icon: Icons.account_balance_wallet_outlined,
-                label: transfer ? 'Dari akun' : 'Akun',
-                value: account['name'] as String,
-                trailing: Text(formatAmount(account['balance'] as int)),
-                onTap: () async {
-                  final id = await chooseOne(context, transfer ? 'Dari akun' : 'Akun', _accountOptions(), _accountId);
-                  if (id != null) {
-                    setState(() {
-                      _accountId = id;
-                      if (_targetId == id) _targetId = null;
-                    });
-                  }
-                },
-              ),
-              if (transfer)
-                FormRow(
-                  icon: Icons.swap_horiz,
-                  strong: true,
-                  label: 'Ke akun',
-                  value: target?['name'] as String? ?? 'Pilih akun tujuan',
-                  trailing: target == null ? null : Text(formatAmount(target['balance'] as int)),
-                  onTap: () async {
-                    final id = await chooseOne(context, 'Ke akun', _accountOptions(except: _accountId), _targetId);
-                    if (id != null) setState(() => _targetId = id);
-                  },
-                ),
-              // ponytail: new transfers only; editing a transfer leaves its fee record alone.
-              if (transfer && !_editing)
-                FormRow(
-                  icon: Icons.receipt_long_outlined,
-                  label: 'Biaya admin',
-                  focusNode: _feeFocus,
-                  child: TextField(
-                    controller: _fee,
-                    focusNode: _feeFocus,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: const [AmountInputFormatter()],
-                    style: AppText.body.copyWith(fontWeight: FontWeight.w500),
-                    decoration: bareField('0'),
-                  ),
-                ),
-              // The day opens the calendar, the time pill the clock, each on its own.
-              FormRow(
-                icon: Icons.calendar_today_outlined,
-                label: 'Tanggal',
-                onTap: _pickDate,
-                child: Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        _dayText,
-                        style: AppText.body.copyWith(fontWeight: FontWeight.w500),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                if (!transfer)
+                  FormRow(
+                    icon: categoryIcon(
+                      category,
+                      _type,
+                      widget.categories.where((x) => x['id'] == _categoryId).firstOrNull?['icon'] as String?,
                     ),
-                    const SizedBox(width: 8),
-                    Material(
-                      color: c.primarySoft,
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
-                        onTap: _pickTime,
+                    strong: true,
+                    label: 'Kategori',
+                    value: category ?? 'Pilih kategori',
+                    badge: category != null && !_categoryPicked ? 'ditebak dari catatan' : null,
+                    onTap: () async {
+                      final id = await chooseOne(context, 'Kategori', [
+                        for (final x in categories) (x['id'] as String, x['name'] as String, null),
+                      ], _categoryId);
+                      if (id != null) _pickCategory(id);
+                    },
+                  ),
+                FormRow(
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: transfer ? 'Dari akun' : 'Akun',
+                  value: account['name'] as String,
+                  trailing: Text(formatAmount(account['balance'] as int)),
+                  onTap: () async {
+                    final id = await chooseOne(context, transfer ? 'Dari akun' : 'Akun', _accountOptions(), _accountId);
+                    if (id != null) {
+                      setState(() {
+                        _accountId = id;
+                        if (_targetId == id) _targetId = null;
+                      });
+                    }
+                  },
+                ),
+                if (transfer)
+                  FormRow(
+                    icon: Icons.swap_horiz,
+                    strong: true,
+                    label: 'Ke akun',
+                    value: target?['name'] as String? ?? 'Pilih akun tujuan',
+                    trailing: target == null ? null : Text(formatAmount(target['balance'] as int)),
+                    onTap: () async {
+                      final id = await chooseOne(context, 'Ke akun', _accountOptions(except: _accountId), _targetId);
+                      if (id != null) setState(() => _targetId = id);
+                    },
+                  ),
+                // ponytail: new transfers only; editing a transfer leaves its fee record alone.
+                if (transfer && !_editing)
+                  FormRow(
+                    icon: Icons.receipt_long_outlined,
+                    label: 'Biaya admin',
+                    focusNode: _feeFocus,
+                    child: TextField(
+                      controller: _fee,
+                      focusNode: _feeFocus,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: const [AmountInputFormatter()],
+                      style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                      decoration: bareField('0'),
+                    ),
+                  ),
+                // The day opens the calendar, the time pill the clock, each on its own.
+                FormRow(
+                  icon: Icons.calendar_today_outlined,
+                  label: 'Tanggal',
+                  onTap: _pickDate,
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _dayText,
+                          style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Material(
+                        color: c.primarySoft,
                         borderRadius: BorderRadius.circular(14),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.schedule, size: 16, color: c.primary),
-                              const SizedBox(width: 4),
-                              Text(
-                                DateFormat('HH.mm').format(_date),
-                                semanticsLabel: 'Jam ${DateFormat('HH.mm').format(_date)}, ubah jam',
-                                style: AppText.body.copyWith(fontWeight: FontWeight.w500, color: c.primary),
-                              ),
-                            ],
+                        child: InkWell(
+                          onTap: _pickTime,
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.schedule, size: 16, color: c.primary),
+                                const SizedBox(width: 4),
+                                Text(
+                                  DateFormat('HH.mm').format(_date),
+                                  semanticsLabel: 'Jam ${DateFormat('HH.mm').format(_date)}, ubah jam',
+                                  style: AppText.body.copyWith(fontWeight: FontWeight.w500, color: c.primary),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (!transfer && chips.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            const FormLabel('Kategori lain'),
-            Wrap(
-              spacing: AppSpace.tight,
-              runSpacing: AppSpace.tight,
-              children: [
-                for (final x in chips)
-                  ChoiceChip(
-                    label: Text(x['name'] as String),
-                    selected: x['id'] == _categoryId,
-                    showCheckmark: false,
-                    labelStyle: AppText.label.copyWith(
-                      fontSize: 14,
-                      color: x['id'] == _categoryId ? c.onPrimary : c.ink,
-                    ),
-                    onSelected: (_) => _pickCategory(x['id'] as String),
+                    ],
                   ),
+                ),
               ],
             ),
+            if (!transfer && chips.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              const FormLabel('Kategori lain'),
+              Wrap(
+                spacing: AppSpace.tight,
+                runSpacing: AppSpace.tight,
+                children: [
+                  for (final x in chips)
+                    ChoiceChip(
+                      label: Text(x['name'] as String),
+                      selected: x['id'] == _categoryId,
+                      showCheckmark: false,
+                      labelStyle: AppText.label.copyWith(
+                        fontSize: 14,
+                        color: x['id'] == _categoryId ? c.onPrimary : c.ink,
+                      ),
+                      onSelected: (_) => _pickCategory(x['id'] as String),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 18),
+            const FormLabel('Label'),
+            LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
           ],
-          const SizedBox(height: 18),
-          const FormLabel('Label'),
-          LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
-        ],
+        ),
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
