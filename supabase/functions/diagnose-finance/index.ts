@@ -22,6 +22,7 @@ The JSON:
   - debt: value = loan installments as a share of income. Good under 0.30, bad over 0.40. note may say a credit card balance is piling up.
   - budgets: value = budgets that went over. goals: value = dated goals behind schedule.
   - netWorth: value = assets minus debts at month end; three_months_ago to compare.
+  - Balances (liquid, owed, netWorth) are taken at the end of the scored month, not today. Name that date when you cite one, such as "saldo akhir Oktober".
   - note explains a status that has no value. unknown means the app could not measure it; never guess it.
 - categories: expense categories this month and the month before, with level must, need, want or null.
 - goals: dated goals not reached yet, with what each needs per month and what was saved per month lately.

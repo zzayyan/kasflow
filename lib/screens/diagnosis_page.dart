@@ -275,6 +275,9 @@ final _oneDecimal = NumberFormat('#,##0.0', 'id_ID');
 String _pct(double v) => '${(v * 100).round()}%';
 String _monthName(DateTime m) => DateFormat('MMMM', 'id_ID').format(m);
 
+/// "31 Okt": the month end balances are taken at, so they never read as today's balance.
+String _monthEnd(DateTime m) => DateFormat('d MMM', 'id_ID').format(DateTime(m.year, m.month + 1, 0));
+
 /// The headline figure: "1,4 bulan", "18%", "Rp 48,6 jt", "1 jebol".
 String _headline(Pillar p) {
   final v = p.value;
@@ -309,7 +312,7 @@ String _valueLine(Pillar p, DiagnosisView view) {
           : v == 0
           ? 'Semua $goals target sesuai jadwal'
           : '${v.round()} dari $goals target tertinggal',
-    PillarKind.netWorth => formatCompact(v.round()),
+    PillarKind.netWorth => '${formatCompact(v.round())} per ${_monthEnd(view.month)}',
   };
 }
 
@@ -856,7 +859,10 @@ class _NetWorth extends StatelessWidget {
                   children: [
                     Text('Kekayaan bersih', style: AppText.heading),
                     const SizedBox(height: 2),
-                    Text('Aset dikurangi utang, akhir bulan', style: AppText.caption.copyWith(color: c.inkMuted)),
+                    Text(
+                      'Aset dikurangi utang, per ${_monthEnd(view.month)}',
+                      style: AppText.caption.copyWith(color: c.inkMuted),
+                    ),
                   ],
                 ),
               ),
@@ -1133,7 +1139,12 @@ Future<void> _showPillar(BuildContext context, Pillar p, DiagnosisView view) {
             child: Column(
               children: [
                 for (final e in p.amounts.entries)
-                  if (_amountLabels[e.key] case final label?) _Row(label, formatAmount(e.value)),
+                  if (_amountLabels[e.key] case final label?)
+                    _Row(switch (e.key) {
+                      'liquid' || 'owed' => '$label, ${_monthEnd(view.month)}',
+                      'three_months_ago' => _monthEnd(DateTime(view.month.year, view.month.month - 3)),
+                      _ => label,
+                    }, formatAmount(e.value)),
                 _Row(
                   _monthName(DateTime(view.month.year, view.month.month - 1)),
                   before == null ? '–' : _headline(before),
