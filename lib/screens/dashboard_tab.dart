@@ -547,7 +547,8 @@ class _BalanceCard extends StatelessWidget {
 
 /// "Jatah hari ini": what the main budget still allows per day for the rest of its period, so a
 /// thrifty day raises tomorrow's figure and a costly one lowers it. Without a budget it invites
-/// setting one; once the budget is spent it turns to the alert color. Tapping it picks the budget.
+/// setting one. Over budget, the panel keeps its look and only the icon and the amount turn to the
+/// alert color, so the card stays calm. Tapping it picks the budget.
 class _AllowancePanel extends StatelessWidget {
   const _AllowancePanel({required this.budget, required this.hidden, required this.onTap});
 
@@ -580,8 +581,8 @@ class _AllowancePanel extends StatelessWidget {
       ),
       _ when overToday => (
         Icons.warning_amber_rounded,
-        'Jatah hari ini terlewat',
-        '${b.row['name']} · jatah ${short(today.perDay)}, terpakai ${short(b.spentToday)}',
+        'Jatah hari ini',
+        '${b.row['name']} · lewat dari jatah ${short(today.perDay)}',
       ),
       _ => (
         Icons.verified_user_outlined,
@@ -591,9 +592,9 @@ class _AllowancePanel extends StatelessWidget {
             : '${b.row['name']} · terpakai ${short(b.spentToday)} dari ${short(today!.perDay)}',
       ),
     };
-    final fg = over ? c.alert : c.onHero;
+    final fg = over ? c.onHeroAlert : c.onHero;
     return Material(
-      color: over ? c.alertSoft : c.heroChip,
+      color: c.heroChip,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onTap,
@@ -605,8 +606,8 @@ class _AllowancePanel extends StatelessWidget {
               Container(
                 width: 34,
                 height: 34,
-                decoration: BoxDecoration(color: over ? c.surface : c.hero, shape: BoxShape.circle),
-                child: Icon(icon, size: 18, color: over ? c.alert : c.onHeroChip),
+                decoration: BoxDecoration(color: c.hero, shape: BoxShape.circle),
+                child: Icon(icon, size: 18, color: over ? c.onHeroAlert : c.onHeroChip),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -618,14 +619,14 @@ class _AllowancePanel extends StatelessWidget {
                       title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: AppText.caption.copyWith(color: over ? c.alert : c.onHeroChip, fontWeight: FontWeight.w500),
+                      style: AppText.caption.copyWith(color: c.onHeroChip, fontWeight: FontWeight.w500),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       detail,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: AppText.caption.copyWith(fontSize: 11, color: over ? c.alert : c.onHeroMuted),
+                      style: AppText.caption.copyWith(fontSize: 11, color: c.onHeroMuted),
                     ),
                   ],
                 ),

@@ -22,6 +22,7 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.onHeroMuted,
     required this.heroChip,
     required this.onHeroChip,
+    required this.onHeroAlert,
     required this.primarySoft,
     required this.onPrimarySoft,
     required this.income,
@@ -48,6 +49,7 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color onHeroMuted;
   final Color heroChip; // small chip on a hero card, e.g. "5,41 jt"
   final Color onHeroChip;
+  final Color onHeroAlert; // over budget on a hero card: 4.4:1 against heroChip
   final Color primarySoft; // info and suggestion cards
   final Color onPrimarySoft;
   final Color income; // incoming amounts
@@ -79,6 +81,7 @@ class AppColors extends ThemeExtension<AppColors> {
     onHeroMuted: Color(0xFFE3EEE5),
     heroChip: Color(0xFF2E5E45),
     onHeroChip: Color(0xFFCDE8D2),
+    onHeroAlert: Color(0xFFF6B8A2),
     primarySoft: Color(0xFFDDE9DE),
     onPrimarySoft: Color(0xFF3F5546),
     income: Color(0xFF1E6B43),
@@ -111,6 +114,7 @@ class AppColors extends ThemeExtension<AppColors> {
     onHeroMuted: Color(0xFFE3EEE5),
     heroChip: Color(0xFF2E5E45),
     onHeroChip: Color(0xFFCDE8D2),
+    onHeroAlert: Color(0xFFF6B8A2),
     primarySoft: Color(0xFF1C3326),
     onPrimarySoft: Color(0xFFB9D6C0),
     income: Color(0xFF7FD19E),
@@ -146,6 +150,7 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? onHeroMuted,
     Color? heroChip,
     Color? onHeroChip,
+    Color? onHeroAlert,
     Color? primarySoft,
     Color? onPrimarySoft,
     Color? income,
@@ -171,6 +176,7 @@ class AppColors extends ThemeExtension<AppColors> {
     onHeroMuted: onHeroMuted ?? this.onHeroMuted,
     heroChip: heroChip ?? this.heroChip,
     onHeroChip: onHeroChip ?? this.onHeroChip,
+    onHeroAlert: onHeroAlert ?? this.onHeroAlert,
     primarySoft: primarySoft ?? this.primarySoft,
     onPrimarySoft: onPrimarySoft ?? this.onPrimarySoft,
     income: income ?? this.income,
@@ -202,6 +208,7 @@ class AppColors extends ThemeExtension<AppColors> {
       onHeroMuted: l(onHeroMuted, other.onHeroMuted),
       heroChip: l(heroChip, other.heroChip),
       onHeroChip: l(onHeroChip, other.onHeroChip),
+      onHeroAlert: l(onHeroAlert, other.onHeroAlert),
       primarySoft: l(primarySoft, other.primarySoft),
       onPrimarySoft: l(onPrimarySoft, other.onPrimarySoft),
       income: l(income, other.income),
