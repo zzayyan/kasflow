@@ -53,6 +53,11 @@ For a library or SDK question (Flutter, PowerSync, Supabase), look up current do
 - `adb` is not on PATH. On Windows, call `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`.
 - The phone is paired for Wi-Fi debugging. If `adb devices` is empty, run `adb mdns services` to find the current connect port, then `adb connect <ip:port>`. The port changes when Wi-Fi debugging restarts.
 
+## Edge Functions
+
+- Deploy one function with `npx supabase functions deploy <name> --remote=<ref> --yes`. The ref is the subdomain of `SUPABASE_URL` in `.env`.
+- A deploy goes straight to production, so ask the owner before each one. `--yes` answers the CLI's confirmation, which an agent run cannot answer itself.
+
 ## Git
 
 - `main` is linear and the only long-lived branch (GitHub: zzayyan/cashflow-app). Commit on a short feature branch.
