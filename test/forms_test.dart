@@ -1,3 +1,4 @@
+import 'package:cashflow_app/receipt_items.dart';
 import 'package:cashflow_app/screens/accounts_tab.dart';
 import 'package:cashflow_app/screens/bills_tab.dart';
 import 'package:cashflow_app/screens/plans_tab.dart';
@@ -112,6 +113,61 @@ void main() {
       await tester.tap(chip);
       await tester.pumpAndSettle();
       expect(tester.testTextInput.isVisible, isFalse);
+    });
+
+    testWidgets('Catat: a receipt shows its lines, the gap to the total, and lines can be fixed ($brightness)', (tester) async {
+      const items = [
+        ReceiptItem(name: 'Ayam Tangkap Dada', qty: 1, amount: 2310000),
+        ReceiptItem(name: 'Nasi Putih', qty: 2, amount: 1320000),
+        ReceiptItem(name: 'Tempe Goreng', qty: 1, amount: 660000),
+        ReceiptItem(name: 'Teh Tarik Dingin', qty: 1, amount: 3300000),
+        ReceiptItem(name: 'Kerupuk', qty: 1, amount: 200000),
+      ]; // 77.900, against a total of 85.690: 7.790 of tax
+      await _pump(
+        tester,
+        const RecordForm(
+          accounts: _accounts,
+          categories: _categories,
+          labels: [],
+          prefill: Prefill(amount: 8569000, note: 'Ramlah', items: items),
+        ),
+        brightness,
+      );
+      final list = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text('Rincian item · 5 item'), 300, scrollable: list);
+      expect(find.text('Ayam Tangkap Dada'), findsOneWidget);
+      expect(find.text('2 ×'), findsOneWidget);
+      expect(find.text('Kerupuk'), findsNothing); // a long receipt starts folded
+      await tester.scrollUntilVisible(find.text('Selisih dari total'), 300, scrollable: list);
+      expect(find.text('+Rp 7.790'), findsOneWidget);
+      await tester.ensureVisible(find.text('Lihat semua 5 item'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Lihat semua 5 item'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Kerupuk'));
+      await tester.pumpAndSettle();
+
+      // Fix a name, then drop a line.
+      await tester.tap(find.text('Kerupuk'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ubah item'), findsOneWidget);
+      await tester.enterText(find.widgetWithText(TextField, 'Kerupuk'), 'Kerupuk Udang');
+      await tester.tap(find.text('Simpan').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Kerupuk Udang'), findsOneWidget);
+      await tester.ensureVisible(find.text('Kerupuk Udang'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Kerupuk Udang'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hapus'));
+      await tester.pumpAndSettle();
+      expect(find.text('Kerupuk Udang'), findsNothing);
+      expect(find.text('Rincian item · 4 item'), findsOneWidget);
+    });
+
+    testWidgets('Catat: a record without a receipt has no Rincian item ($brightness)', (tester) async {
+      await _pump(tester, const RecordForm(accounts: _accounts, categories: _categories, labels: []), brightness);
+      expect(find.textContaining('Rincian item'), findsNothing);
     });
 
     testWidgets('Tagihan sheet builds and its rows focus their fields ($brightness)', (tester) async {

@@ -59,6 +59,7 @@ const schema = Schema([
       Column.text('payee'),
       Column.text('place'),
       Column.text('photo_path'),
+      Column.text('items'), // a scanned receipt's lines, JSON (lib/receipt_items.dart)
       Column.text('occurred_at'),
       Column.text('status'),
       Column.text('source'),

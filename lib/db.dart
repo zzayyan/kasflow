@@ -24,7 +24,7 @@ String? get currentUserId => supabase.auth.currentUser?.id;
 final _fatalCodes = [RegExp(r'^22...$'), RegExp(r'^23...$'), RegExp(r'^42501$')];
 
 // jsonb columns arrive in SQLite as text; decode them before upload or Postgres stores a JSON string.
-const _jsonColumns = {'keywords', 'label_ids', 'category_ids', 'account_ids'};
+const _jsonColumns = {'keywords', 'label_ids', 'category_ids', 'account_ids', 'items'};
 
 class SupabaseConnector extends PowerSyncBackendConnector {
   Future<void>? _refresh;
@@ -174,6 +174,7 @@ Future<String> insertRecord({
   String? plannedPaymentId,
   DateTime? nextDue,
   List<String> labelIds = const [],
+  String? items,
 }) {
   return db.writeTransaction((tx) async {
     final id = (await tx.get('SELECT uuid() AS id'))['id'] as String;
@@ -182,8 +183,8 @@ Future<String> insertRecord({
       '''
       INSERT INTO records (id, user_id, account_id, type, amount, currency, category_id,
         transfer_account_id, transfer_amount, note, occurred_at, status, source, source_ref,
-        planned_payment_id, label_ids, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?)''',
+        planned_payment_id, label_ids, items, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?)''',
       [
         id,
         currentUserId,
@@ -200,6 +201,7 @@ Future<String> insertRecord({
         sourceRef,
         plannedPaymentId,
         jsonEncode(labelIds),
+        items,
         now,
         now,
       ],
@@ -244,10 +246,11 @@ Future<void> updateRecord(
   int? transferAmount,
   String? note,
   List<String> labelIds = const [],
+  String? items,
 }) => db.execute(
   '''
   UPDATE records SET account_id = ?, type = ?, amount = ?, currency = ?, category_id = ?,
-    transfer_account_id = ?, transfer_amount = ?, note = ?, label_ids = ?, occurred_at = ?, updated_at = ?
+    transfer_account_id = ?, transfer_amount = ?, note = ?, label_ids = ?, items = ?, occurred_at = ?, updated_at = ?
   WHERE id = ?''',
   [
     accountId,
@@ -259,6 +262,7 @@ Future<void> updateRecord(
     transferAmount,
     note,
     jsonEncode(labelIds),
+    items,
     occurredAt.toUtc().toIso8601String(),
     nowIso(),
     id,

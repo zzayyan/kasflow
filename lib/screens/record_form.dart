@@ -11,6 +11,7 @@ import '../categorize.dart';
 import '../db.dart';
 import '../money.dart';
 import '../quick_input.dart';
+import '../receipt_items.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'labels_page.dart';
@@ -48,6 +49,7 @@ class Prefill {
     date: DateTime.parse(r['occurred_at'] as String).toLocal(),
     source: (r['source'] as String?) ?? 'manual',
     labelIds: labelIdsOf(r['label_ids']),
+    items: itemsOf(r['items']),
   );
 
   const Prefill({
@@ -67,6 +69,7 @@ class Prefill {
     this.transferAccountId,
     this.nextDue,
     this.labelIds = const [],
+    this.items = const [],
   });
 
   final String? recordId; // edit this record instead of inserting a new one
@@ -85,6 +88,7 @@ class Prefill {
   final DateTime? nextDue;
   final String? transferAccountId; // transfer into this account, e.g. a saving goal's account
   final List<String> labelIds;
+  final List<ReceiptItem> items; // a scanned receipt's lines
 }
 
 Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
@@ -164,6 +168,8 @@ class _RecordFormState extends State<RecordForm> {
   String? _categoryId;
   DateTime _date = DateTime.now();
   late Set<String> _labelIds = {...?widget.prefill?.labelIds};
+  late List<ReceiptItem> _items = [...?widget.prefill?.items];
+  bool _allItems = false; // a long receipt shows its first few lines until asked for the rest
 
   @override
   void initState() {
@@ -281,6 +287,8 @@ class _RecordFormState extends State<RecordForm> {
         _categoryId =
             known(r['category_id'], widget.categories) ?? guessCategoryId(_note.text, 'expense', widget.categories);
         _categoryPicked = false;
+        _items = itemsFromReceipt(r['items']);
+        _allItems = false;
       });
       FocusManager.instance.primaryFocus?.unfocus(); // show the filled form, not the keyboard
     } finally {
@@ -362,6 +370,7 @@ class _RecordFormState extends State<RecordForm> {
         transferAmount: transferAmount,
         note: note.isEmpty ? null : note,
         labelIds: [..._labelIds],
+        items: encodeItems(_items),
       );
     } else {
       await insertRecord(
@@ -380,6 +389,7 @@ class _RecordFormState extends State<RecordForm> {
         plannedPaymentId: p?.plannedPaymentId,
         nextDue: p?.nextDue,
         labelIds: [..._labelIds],
+        items: encodeItems(_items),
       );
       // The fee leaves the source account too, but as spending, so Laporan counts it.
       if (fee != null) {
@@ -409,6 +419,24 @@ class _RecordFormState extends State<RecordForm> {
     if (mounted) Navigator.pop(context);
   }
 
+  /// Fixes a line the receipt reading got wrong, or drops it.
+  Future<void> _editItem(int index) async {
+    final result = await showModalBottomSheet<Object>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _ItemSheet(item: _items[index]),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      if (result is ReceiptItem) {
+        _items[index] = result;
+      } else {
+        _items.removeAt(index);
+      }
+    });
+  }
+
   Future<void> _delete() async {
     if (await confirmDeleteRecord(context, widget.prefill!.recordId!) && mounted) Navigator.pop(context);
   }
@@ -423,6 +451,38 @@ class _RecordFormState extends State<RecordForm> {
     _noteFocus.dispose();
     _feeFocus.dispose();
     super.dispose();
+  }
+
+  /// The receipt's lines, then what they leave out of the total (tax, service, a bill discount).
+  Widget _itemsCard(AppColors c) {
+    const few = 3;
+    final shown = _allItems || _items.length <= few + 1 ? _items.length : few;
+    final gap = itemsGap(_items, parseAmount(_amount.text) ?? 0);
+    return FormCard(
+      children: [
+        for (var i = 0; i < shown; i++)
+          FormRow(
+            icon: Icons.receipt_long_outlined,
+            label: '${_items[i].qty} ×',
+            value: _items[i].name,
+            trailing: Text(formatAmount(_items[i].amount)),
+            onTap: () => _editItem(i),
+          ),
+        if (shown < _items.length)
+          TextButton(
+            onPressed: () => setState(() => _allItems = true),
+            style: TextButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+            child: Text('Lihat semua ${_items.length} item'),
+          ),
+        if (gap != 0 && parseAmount(_amount.text) != null)
+          FormRow(
+            icon: Icons.percent,
+            label: 'Selisih dari total',
+            value: gap > 0 ? 'Pajak, servis, atau pembulatan' : 'Diskon',
+            trailing: Text('${gap > 0 ? '+' : '-'}${formatAmount(gap.abs())}'),
+          ),
+      ],
+    );
   }
 
   @override
@@ -747,6 +807,11 @@ class _RecordFormState extends State<RecordForm> {
             const SizedBox(height: 18),
             const FormLabel('Label'),
             LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
+            if (_items.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              FormLabel('Rincian item · ${_items.length} item'),
+              _itemsCard(c),
+            ],
           ],
         ),
       ),
@@ -819,4 +884,89 @@ Future<Map<String, dynamic>?> _readReceipt(
     _log.warning('parse-receipt unreachable', e);
   }
   return null;
+}
+
+/// Edits one receipt line. Pops the changed [ReceiptItem], `false` to drop the line, or null.
+class _ItemSheet extends StatefulWidget {
+  const _ItemSheet({required this.item});
+
+  final ReceiptItem item;
+
+  @override
+  State<_ItemSheet> createState() => _ItemSheetState();
+}
+
+class _ItemSheetState extends State<_ItemSheet> {
+  late final _name = TextEditingController(text: widget.item.name);
+  late final _amount = TextEditingController(
+    text: NumberFormat.decimalPattern('id_ID').format(widget.item.amount / 100),
+  );
+  final _nameFocus = FocusNode();
+  final _amountFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _amount.dispose();
+    _nameFocus.dispose();
+    _amountFocus.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final name = _name.text.trim();
+    final amount = parseAmount(_amount.text);
+    if (name.isEmpty) return showMessage(context, 'Nama item belum diisi.');
+    if (amount == null) return showMessage(context, 'Harga tidak valid. Contoh: 25.000');
+    haptic(Haptic.click);
+    Navigator.pop(context, widget.item.copyWith(name: name, amount: amount));
+  }
+
+  @override
+  Widget build(BuildContext context) => FormSheet(
+    title: 'Ubah item',
+    action: Row(
+      children: [
+        OutlinedButton(
+          onPressed: () {
+            haptic(Haptic.click);
+            Navigator.pop(context, false);
+          },
+          style: OutlinedButton.styleFrom(minimumSize: const Size(64, 56)),
+          child: const Text('Hapus'),
+        ),
+        const SizedBox(width: AppSpace.gap),
+        Expanded(
+          child: FilledButton(
+            onPressed: _save,
+            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+            child: const Text('Simpan'),
+          ),
+        ),
+      ],
+    ),
+    children: [
+      FormCard(
+        children: [
+          FormRow(
+            icon: Icons.edit_outlined,
+            label: 'Nama item',
+            focusNode: _nameFocus,
+            child: TextField(
+              controller: _name,
+              focusNode: _nameFocus,
+              style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+              decoration: bareField('contoh: Teh Tarik'),
+            ),
+          ),
+          FormRow(
+            icon: Icons.payments_outlined,
+            label: widget.item.qty > 1 ? 'Harga (${widget.item.qty} ×)' : 'Harga',
+            focusNode: _amountFocus,
+            child: MoneyField(controller: _amount, focusNode: _amountFocus),
+          ),
+        ],
+      ),
+    ],
+  );
 }

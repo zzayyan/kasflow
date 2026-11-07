@@ -1,8 +1,8 @@
 // Run: cd supabase/tests && npm install && npm test
-// Runs supabase/migrations/0001_init.sql against PGlite with a stubbed Supabase auth schema,
-// then checks the trigger, constraints, dedupe index and RLS isolation.
+// Runs every file in supabase/migrations, in order, against PGlite with a stubbed Supabase auth
+// schema, then checks the trigger, constraints, dedupe index and RLS isolation.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { PGlite } from '@electric-sql/pglite';
 
@@ -23,6 +23,11 @@ sql = sql.slice(0, sql.indexOf('create publication'));
 await db.exec(sql);
 try { await db.exec(pub); console.log('publication: created'); }
 catch (e) { console.log('publication: skipped in PGlite (' + e.message + ')'); }
+
+const dir = new URL('../migrations/', import.meta.url);
+for (const f of readdirSync(dir).filter((f) => f.endsWith('.sql') && f !== '0001_init.sql').sort()) {
+  await db.exec(readFileSync(new URL(f, dir), 'utf8'));
+}
 
 await db.exec(`grant usage on schema auth to authenticated;
   grant execute on function auth.uid() to authenticated;
@@ -61,13 +66,19 @@ await fails(A, `insert into records (account_id, type, amount, currency)
 await fails(A, `insert into records (account_id, type, amount, currency)
                 values ('${accId}', 'expense', 0, 'IDR')`, 'zero amount rejected');
 
+// A receipt's lines ride on its record as a JSON array.
+await as(A, `insert into records (account_id, type, amount, currency, items)
+              values ($1, 'expense', 3300000, 'IDR', '[{"name":"Teh Tarik","qty":1,"amount":3300000}]')`, [accId]);
+await fails(A, `insert into records (account_id, type, amount, currency, items)
+                values ('${accId}', 'expense', 100, 'IDR', '{"name":"x"}')`, 'items must be an array');
+
 // RLS: B sees none of A's rows and cannot write rows owned by A.
 const seen = await as(B, `select (select count(*) from accounts)::int a, (select count(*) from records)::int r,
                                  (select count(*) from categories)::int c`);
 assert.deepEqual(seen.rows[0], { a: 0, r: 0, c: 13 }, 'B sees only own rows');
 await fails(B, `insert into accounts (user_id, name, type) values ('${A}', 'x', 'cash')`, 'B cannot write as A');
 
-// Balance is derived, not stored: GoPay = -25.000 + 100.000 transfer in = 75.000 (minor units x100).
+// Balance is derived, not stored: GoPay = -25.000 - 33.000 + 100.000 transfer in = 42.000 (minor units x100).
 const bal = await as(A, `
   select a.initial_balance + coalesce(sum(case
       when r.account_id = a.id and r.type = 'income' then r.amount
@@ -75,6 +86,6 @@ const bal = await as(A, `
       when r.transfer_account_id = a.id then r.transfer_amount end), 0) as balance
   from accounts a left join records r on a.id in (r.account_id, r.transfer_account_id)
   where a.id = $1 group by a.id`, [accId]);
-assert.equal(Number(bal.rows[0].balance), 7500000, 'derived balance');
+assert.equal(Number(bal.rows[0].balance), 4200000, 'derived balance');
 
 console.log('migration check: all assertions passed');

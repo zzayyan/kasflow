@@ -34,7 +34,8 @@ class _RecordsTabState extends State<RecordsTab> {
   static const _select = '''
     SELECT r.*, a.name AS account_name, t.name AS target_name, c.name AS category_name, c.icon AS category_icon,
       (SELECT group_concat('#' || l.name, ' ') FROM json_each(r.label_ids) j JOIN labels l ON l.id = j.value)
-        AS label_names
+        AS label_names,
+      json_array_length(r.items) AS item_count
     FROM records r
     LEFT JOIN accounts a ON a.id = r.account_id
     LEFT JOIN accounts t ON t.id = r.transfer_account_id
@@ -57,8 +58,8 @@ class _RecordsTabState extends State<RecordsTab> {
     );
   }
 
-  /// Every record, however old (only those of [month] when given), whose note, category, account, label or
-  /// amount holds [text].
+  /// Every record, however old (only those of [month] when given), whose note, category, account, label,
+  /// receipt line or amount holds [text].
   /// ponytail: % and _ typed in the search act as LIKE wildcards; escape them if that ever bites.
   static Stream<List<Map<String, dynamic>>> _matching(String text, DateTime? month) {
     final digits = text.replaceAll(RegExp(r'[^0-9]'), '');
@@ -70,6 +71,7 @@ class _RecordsTabState extends State<RecordsTab> {
         OR lower(coalesce(a.name, '')) LIKE ?1 OR lower(coalesce(t.name, '')) LIKE ?1
         OR EXISTS (SELECT 1 FROM json_each(r.label_ids) j JOIN labels l ON l.id = j.value
           WHERE lower('#' || l.name) LIKE ?1)
+        OR EXISTS (SELECT 1 FROM json_each(r.items) i WHERE lower(json_extract(i.value, '\$.name')) LIKE ?1)
         OR (?2 != '' AND CAST(r.amount / 100 AS TEXT) LIKE '%' || ?2 || '%'))
         ${range == null ? '' : 'AND ${_within(3, 4)}'}
       ORDER BY julianday(r.occurred_at) DESC LIMIT $_searchLimit''',
@@ -387,6 +389,7 @@ class RecordRow extends StatelessWidget {
       if (title != category) category,
       if (withAccount || title == category) ?r['account_name'],
       if (withAccount) ?r['label_names'],
+      if (r['item_count'] case final int n when n > 0) '$n item',
     ].join(' · ');
     final amount = formatAmount(r['amount'] as int);
     final (text, color) = switch (type) {
