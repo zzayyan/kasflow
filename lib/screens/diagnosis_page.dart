@@ -440,6 +440,7 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
         _stale = false;
       }
     });
+    if (advice == null) showMessage(context, 'Gagal memperbarui diagnosis. Coba lagi nanti.');
   }
 
   @override

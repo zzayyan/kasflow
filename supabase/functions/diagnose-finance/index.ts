@@ -6,8 +6,10 @@
 import { askGemini } from "../_shared/gemini.ts";
 
 // Reasoning over many numbers, once a month: the larger Flash first, the free-tier lite model when
-// it is over quota or unavailable.
+// it is over quota, unavailable, or slower than PRIMARY_MS. The app gives up after 60 s, and Flash
+// has taken longer than that.
 const PRIMARY = "gemini-3.8-flash";
+const PRIMARY_MS = 25_000;
 const MAX_PAYLOAD = 20_000; // characters of JSON; a real month is about 3,000
 
 const INSTRUCTION = `You are a blunt, practical personal CFO for one person in Indonesia. You receive their finances for one full month as JSON, already scored by the app. Write in Indonesian, addressing the user as "kamu". Be direct and never preachy.
@@ -61,6 +63,6 @@ Deno.serve(async (req) => {
       { status: 400 },
     );
   }
-  const answer = await askGemini(INSTRUCTION, text, SCHEMA, PRIMARY);
+  const answer = await askGemini(INSTRUCTION, text, SCHEMA, PRIMARY, PRIMARY_MS);
   return answer.ok ? answer : askGemini(INSTRUCTION, text, SCHEMA);
 });
