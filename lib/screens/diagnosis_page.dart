@@ -24,7 +24,7 @@ final _log = Logger('diagnosis');
 class DiagnosisView {
   const DiagnosisView({
     required this.month,
-    required this.now,
+    required this.scored,
     required this.before,
     required this.netWorth,
     required this.budgetCount,
@@ -32,13 +32,13 @@ class DiagnosisView {
   });
 
   final DateTime month; // the scored month: the last full one
-  final Diagnosis now;
-  final Diagnosis before; // the month before, for the change shown on each pillar
-  final List<int> netWorth; // six month ends, oldest first, ending with [month]
+  final Diagnosis scored;
+  final Diagnosis? before; // the month before, for each pillar's change; null when it wasn't recorded
+  final List<(DateTime, int)> netWorth; // month ends since recording began, up to six, ending with [month]
   final int budgetCount;
   final String payload; // diagnosisPayload as JSON: what Gemini reads, and the staleness check
 
-  Pillar? previous(PillarKind kind) => before.pillars.where((p) => p.kind == kind).firstOrNull;
+  Pillar? previous(PillarKind kind) => before?.pillars.where((p) => p.kind == kind).firstOrNull;
 }
 
 /// The last full month's diagnosis, or only the first record's time when there is too little
@@ -51,7 +51,8 @@ Future<({DiagnosisView? view, DateTime? firstRecord})> loadDiagnosis() async {
   );
   final firstRecord = first == null ? null : DateTime.parse(first['occurred_at'] as String).toLocal();
   // ponytail: a month whose first week has records counts as fully recorded.
-  if (firstRecord == null || !firstRecord.isBefore(DateTime(month.year, month.month, 8))) {
+  bool recorded(DateTime m) => firstRecord != null && firstRecord.isBefore(DateTime(m.year, m.month, 8));
+  if (!recorded(month)) {
     return (view: null, firstRecord: firstRecord);
   }
 
@@ -64,7 +65,7 @@ Future<({DiagnosisView? view, DateTime? firstRecord})> loadDiagnosis() async {
         id: a['id'] as String,
         type: a['type'] as String? ?? 'cash',
         initialBalance: a['initial_balance'] as int? ?? 0,
-        excluded: a['exclude_from_stats'] == 1,
+        excluded: a['exclude_from_stats'] != 0, // null counts as excluded, as in the SQL elsewhere
       ),
   ];
   final records = [
@@ -86,7 +87,9 @@ Future<({DiagnosisView? view, DateTime? firstRecord})> loadDiagnosis() async {
       ),
   ];
   final bills = [
-    for (final b in await db.getAll('SELECT type, amount, rrule FROM planned_payments'))
+    for (final b in await db.getAll('''
+      SELECT p.type, p.amount, p.rrule FROM planned_payments p LEFT JOIN accounts a ON a.id = p.account_id
+      WHERE a.id IS NULL OR (COALESCE(a.archived, 0) = 0 AND a.exclude_from_stats = 0)'''))
       DiagBill(
         type: b['type'] as String? ?? 'expense',
         amount: b['amount'] as int? ?? 0,
@@ -110,17 +113,15 @@ Future<({DiagnosisView? view, DateTime? firstRecord})> loadDiagnosis() async {
       diagnose(month: m, accounts: accounts, records: records, bills: bills, budgets: budgets, goals: goals);
 
   final budgets = await _budgetsFor(budgetRows, month);
-  final now = score(month, budgets);
-  final before = score(
-    DateTime(month.year, month.month - 1),
-    await _budgetsFor(budgetRows, DateTime(month.year, month.month - 1)),
-  );
+  final scored = score(month, budgets);
+  final previous = DateTime(month.year, month.month - 1);
+  final before = recorded(previous) ? score(previous, await _budgetsFor(budgetRows, previous)) : null;
+  // From the first recorded month on: earlier month ends are only opening balances.
   final netWorth = [
     for (var i = 5; i >= 0; i--)
-      score(
-        DateTime(month.year, month.month - i),
-        const [],
-      ).pillars.firstWhere((p) => p.kind == PillarKind.netWorth).value!.round(),
+      if (DateTime(month.year, month.month - i) case final m
+          when !m.isBefore(DateTime(firstRecord!.year, firstRecord.month)))
+        (m, score(m, const []).pillars.firstWhere((p) => p.kind == PillarKind.netWorth).value!.round()),
   ];
 
   final categories = [
@@ -132,7 +133,8 @@ Future<({DiagnosisView? view, DateTime? firstRecord})> loadDiagnosis() async {
       FROM records r
       JOIN accounts a ON a.id = r.account_id
       LEFT JOIN categories c ON c.id = r.category_id
-      WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND r.type = 'expense'
+      WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND COALESCE(a.archived, 0) = 0
+        AND r.type = 'expense'
         AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?3)
       GROUP BY r.category_id
       ORDER BY cur DESC
@@ -150,11 +152,11 @@ Future<({DiagnosisView? view, DateTime? firstRecord})> loadDiagnosis() async {
   return (
     view: DiagnosisView(
       month: month,
-      now: now,
+      scored: scored,
       before: before,
       netWorth: netWorth,
       budgetCount: budgets.length,
-      payload: jsonEncode(diagnosisPayload(now, categories: categories)),
+      payload: jsonEncode(diagnosisPayload(scored, categories: categories)),
     ),
     firstRecord: firstRecord,
   );
@@ -295,7 +297,7 @@ String _headline(Pillar p) {
 String _valueLine(Pillar p, DiagnosisView view) {
   final v = p.value;
   if (v == null || (p.kind == PillarKind.debt && p.reason != null)) return p.reason ?? '–';
-  final goals = view.now.goals.length;
+  final goals = view.scored.goals.length;
   return switch (p.kind) {
     PillarKind.emergency => '${_oneDecimal.format(v)} bulan pengeluaran wajib dan butuh',
     PillarKind.savings => '${_pct(v)} dari pemasukan, rata-rata 3 bulan',
@@ -347,34 +349,41 @@ String _underHeadline(Pillar p, DiagnosisView view) {
   }
 }
 
-/// Steps from fixed rules, one per Bahaya pillar: what shows when Gemini can't answer.
+/// Steps from fixed rules, Bahaya pillars first, then Waspada, at most three: what shows when
+/// Gemini can't answer. Each aims at the next band up.
 List<(String, String)> _ruleSteps(DiagnosisView view) => [
-  for (final p in view.now.pillars)
-    if (p.health == Health.bad)
-      switch (p.kind) {
-        PillarKind.emergency => (
-          'Bangun dana darurat sampai 3 bulan',
-          'Dana darurat baru ${_valueLine(p, view)}. Patokan minimal 3 bulan.',
-        ),
-        PillarKind.savings when p.value == null => (
-          'Catat pemasukanmu',
-          'Tidak ada pemasukan tercatat dalam 3 bulan terakhir, jadi tabungan tidak bisa dihitung.',
-        ),
-        PillarKind.savings => ('Sisihkan minimal 10% pemasukan', 'Tingkat tabunganmu ${_valueLine(p, view)}.'),
-        PillarKind.spending => ('Tekan belanja Ingin di bawah 40%', 'Saat ini ${_valueLine(p, view)}.'),
-        PillarKind.fixedCosts => ('Tinjau tagihan rutin', '${_valueLine(p, view)}, lewat batas 50%.'),
-        PillarKind.debt => ('Turunkan cicilan di bawah 40% pemasukan', '${_valueLine(p, view)}.'),
-        PillarKind.budgets => ('Sesuaikan anggaran yang jebol', '${_valueLine(p, view)} bulan lalu.'),
-        PillarKind.goals => (
-          'Tinjau target yang tertinggal',
-          'Ada target yang tertinggal dengan tenggat kurang dari 3 bulan, atau sudah lewat.',
-        ),
-        PillarKind.netWorth => (
-          'Hentikan kekayaan bersih yang minus',
-          'Utangmu lebih besar dari asetmu: ${_valueLine(p, view)}.',
-        ),
-      },
-];
+  for (final health in const [Health.bad, Health.warn])
+    for (final p in view.scored.pillars)
+      if (p.health == health) ?_ruleStep(p, view, bad: health == Health.bad),
+].take(3).toList();
+
+(String, String)? _ruleStep(Pillar p, DiagnosisView view, {required bool bad}) {
+  if (p.value == null && p.reason == noIncome) {
+    return (
+      'Catat pemasukanmu',
+      'Tidak ada pemasukan tercatat dalam 3 bulan terakhir, jadi pilar ini tidak bisa dinilai.',
+    );
+  }
+  final line = _valueLine(p, view);
+  return switch (p.kind) {
+    PillarKind.emergency => (
+      'Bangun dana darurat sampai ${bad ? 3 : 6} bulan',
+      'Saat ini $line. Patokan ${bad ? 'minimal 3' : 'aman 6'} bulan.',
+    ),
+    PillarKind.savings => ('Sisihkan minimal ${bad ? 10 : 20}% pemasukan', 'Tingkat tabunganmu $line.'),
+    PillarKind.spending => ('Tekan belanja Ingin ke ${bad ? 'di bawah 40' : 'paling banyak 30'}%', 'Saat ini $line.'),
+    PillarKind.fixedCosts => ('Tinjau tagihan rutin', '$line, ${bad ? 'lewat batas 50' : 'di atas patokan 30'}%.'),
+    PillarKind.debt when p.reason != null => ('Lunasi tagihan kartu kredit', '$line.'),
+    PillarKind.debt => ('Turunkan cicilan di bawah ${bad ? 40 : 30}% pemasukan', '$line.'),
+    PillarKind.budgets => ('Sesuaikan anggaran yang jebol', '$line.'),
+    PillarKind.goals => ('Tinjau target yang tertinggal', '$line. Tambah setoran atau mundurkan tenggatnya.'),
+    PillarKind.netWorth when bad => ('Hentikan kekayaan bersih yang minus', 'Utangmu lebih besar dari asetmu: $line.'),
+    PillarKind.netWorth => (
+      'Cari penyebab kekayaan bersih turun',
+      'Kekayaan bersih $line, lebih rendah dari 3 bulan lalu.',
+    ),
+  };
+}
 
 /// "3 sehat · 4 waspada · 1 bahaya", leaving out empty groups. Unscored pillars show in the list.
 String _countLine(Diagnosis d) => [
@@ -457,7 +466,7 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
                         ? 'Disusun dari pilar Bahaya dan Waspada'
                         : _asking
                         ? 'Menunggu AI. Sementara dari aturan dasar.'
-                        : 'Dari aturan dasar untuk pilar berstatus Bahaya',
+                        : 'Dari aturan dasar, tanpa AI',
                   ),
                   const SizedBox(height: 16),
                   _Pillars(view: view),
@@ -516,7 +525,7 @@ class _Summary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final d = view.now;
+    final d = view.scored;
     final body = AppText.body.copyWith(color: c.onHero, height: 1.5);
     final advice = this.advice;
     return Container(
@@ -624,8 +633,7 @@ class _Summary extends StatelessWidget {
                 child: Text(
                   advice == null
                       ? 'Ringkasan dan langkah AI muncul setelah koneksi pulih.'
-                      : 'Dibuat AI dari catatanmu, ${DateFormat('d MMM', 'id_ID').format(advice.madeAt)}. '
-                            'Bukan nasihat keuangan profesional.',
+                      : 'Dibuat AI dari catatanmu. Bukan nasihat keuangan profesional.',
                   style: AppText.caption.copyWith(color: c.onHeroMuted),
                 ),
               ),
@@ -694,7 +702,7 @@ class _Steps extends StatelessWidget {
         if (steps.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text('Tidak ada pilar berstatus Bahaya.', style: AppText.body.copyWith(color: c.inkMuted)),
+            child: Text('Semua pilar yang dinilai sehat.', style: AppText.body.copyWith(color: c.inkMuted)),
           ),
         for (final (i, (title, why)) in steps.indexed)
           Container(
@@ -774,7 +782,7 @@ class _Pillars extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final pillars = view.now.pillars;
+    final pillars = view.scored.pillars;
     return _Card(
       title: 'Kesehatan keuangan',
       caption:
@@ -841,9 +849,11 @@ class _NetWorth extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final values = view.netWorth;
-    final months = [for (var i = 5; i >= 0; i--) DateTime(view.month.year, view.month.month - i)];
-    final change = values.last - values[2]; // against three month ends earlier
+    final months = [for (final (m, _) in view.netWorth) m];
+    final values = [for (final (_, v) in view.netWorth) v];
+    // Against three month ends earlier, or the first recorded one when recording is younger.
+    final from = values.length > 3 ? values.length - 4 : 0;
+    final change = values.last - values[from];
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(AppRadius.card)),
@@ -890,23 +900,24 @@ class _NetWorth extends StatelessWidget {
                     DateFormat('MMM', 'id_ID').format(m),
                     textAlign: TextAlign.center,
                     style: AppText.caption.copyWith(
-                      color: i == 5 ? c.ink : c.inkMuted,
-                      fontWeight: i == 5 ? FontWeight.w600 : null,
+                      color: i == months.length - 1 ? c.ink : c.inkMuted,
+                      fontWeight: i == months.length - 1 ? FontWeight.w600 : null,
                     ),
                   ),
                 ),
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            '${change == 0
-                ? 'Sama dengan'
-                : change > 0
-                ? 'Naik ${formatCompact(change)} dari'
-                : 'Turun ${formatCompact(-change)} dari'} '
-            '${_monthName(months[2])}. Investasi dihitung sesuai saldo yang kamu catat.',
-            style: AppText.caption.copyWith(color: c.inkMuted),
-          ),
+          if (values.length > 1)
+            Text(
+              '${change == 0
+                  ? 'Sama dengan'
+                  : change > 0
+                  ? 'Naik ${formatCompact(change)} dari'
+                  : 'Turun ${formatCompact(-change)} dari'} '
+              '${_monthName(months[from])}. Investasi dihitung sesuai saldo yang kamu catat.',
+              style: AppText.caption.copyWith(color: c.inkMuted),
+            ),
         ],
       ),
     );
@@ -1095,7 +1106,7 @@ Future<void> _showPillar(BuildContext context, Pillar p, DiagnosisView view) {
   final c = AppColors.of(context);
   final before = view.previous(p.kind);
   final link = switch (p.kind) {
-    _ when p.reason == 'Atur tingkat kebutuhan kategori' => ('Atur kategori', () => const CategoriesPage()),
+    _ when p.reason == setLevels => ('Atur kategori', () => const CategoriesPage()),
     PillarKind.spending => ('Atur kategori', () => const CategoriesPage()),
     PillarKind.emergency || PillarKind.debt || PillarKind.netWorth => ('Lihat akun', () => const AccountsPage()),
     _ => null,
@@ -1372,7 +1383,7 @@ class _DiagnosisCardState extends State<DiagnosisCard> {
                       (Health.warn, 'waspada'),
                       (Health.bad, 'bahaya'),
                     ])
-                      if (view.now.count(health) > 0) HealthChip(health, text: '${view.now.count(health)} $word'),
+                      if (view.scored.count(health) > 0) HealthChip(health, text: '${view.scored.count(health)} $word'),
                   ],
                 ),
                 if (step != null) ...[

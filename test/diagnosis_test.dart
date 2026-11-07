@@ -23,7 +23,7 @@ DiagRecord rec(
 
 Pillar pillar(
   PillarKind kind, {
-  List<DiagAccount> accounts = const [],
+  List<DiagAccount> accounts = const [DiagAccount(id: 'bank', type: 'bank', initialBalance: 0)],
   List<DiagRecord> records = const [],
   List<DiagBill> bills = const [],
   List<DiagBudget> budgets = const [],
@@ -48,7 +48,7 @@ void main() {
       ],
       records: [
         for (final m in [8, 9, 10]) ...[
-          rec('expense', 300, DateTime(2026, m, 5), need: 'must'),
+          rec('expense', 300, DateTime(2026, m, 1), need: 'must'),
           rec('expense', 260, DateTime(2026, m, 12), need: 'need'),
         ],
         rec('expense', 1000, DateTime(2026, 11, 2), need: 'need'), // after October: not counted
@@ -355,6 +355,41 @@ void main() {
     expect(p(PillarKind.emergency).value, closeTo(4, 1e-9)); // 2000 left / 500 a month over 2 months
     expect(p(PillarKind.emergency).amounts['essentials_per_month'], 500);
     expect(p(PillarKind.fixedCosts).value, closeTo(0.3, 1e-9)); // 300 / 1000 a month
+  });
+
+  test('records on an archived account (one the caller left out) stay out of cash flow', () {
+    final p = pillar(
+      PillarKind.savings,
+      accounts: const [DiagAccount(id: 'bank', type: 'bank', initialBalance: 0)],
+      records: [
+        rec('income', 1000, DateTime(2026, 10, 1)),
+        rec('expense', 750, DateTime(2026, 10, 2), need: 'need'),
+        rec('income', 5000, DateTime(2026, 10, 3), account: 'lama'), // archived
+      ],
+    );
+    expect(p.value, closeTo(0.25, 1e-9));
+  });
+
+  test('a first month recorded only in part counts as part of a month', () {
+    // Recording starts 25 Sep: 6 of September's 30 days and all of October are 1.2 months, not 2.
+    final p = pillar(
+      PillarKind.fixedCosts,
+      records: [rec('income', 300, DateTime(2026, 9, 25)), rec('income', 1000, DateTime(2026, 10, 1))],
+      bills: const [DiagBill(type: 'expense', amount: 300, rule: 'FREQ=MONTHLY;BYMONTHDAY=1')],
+    );
+    expect(p.amounts['income_per_month'], 1083); // 1300 / 1.2
+  });
+
+  test('excluded accounts are left out of the emergency fund', () {
+    final p = pillar(
+      PillarKind.emergency,
+      accounts: const [
+        DiagAccount(id: 'bank', type: 'bank', initialBalance: 1500),
+        DiagAccount(id: 'kantor', type: 'bank', initialBalance: 9000, excluded: true),
+      ],
+      records: [rec('expense', 500, DateTime(2026, 8, 1), need: 'must')],
+    );
+    expect(p.amounts['liquid'], 1000);
   });
 
   test('emergency fund is unknown without any must or need spending', () {

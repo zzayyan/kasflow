@@ -89,10 +89,7 @@ class _ReportTabState extends State<ReportTab> {
           .watch(_sql, parameters: [utcIso(previous), utcIso(start), utcIso(end), _labelId])
           .listen((rows) => _set(() => _report = buildMonthReport(rows.toList()))),
       db
-          .watch(
-            _trendSql,
-            parameters: [utcIso(trendStart), utcIso(DateTime(trendEnd.year, trendEnd.month + 1)), _labelId],
-          )
+          .watch(_trendSql, parameters: [utcIso(trendStart), utcIso(DateTime(trendEnd.year, trendEnd.month + 1)), _labelId])
           .listen((rows) => _set(() => _trendRows = rows)),
     ]);
   }
@@ -179,7 +176,9 @@ class _ReportTabState extends State<ReportTab> {
                 ),
                 const SizedBox(width: 10),
               ],
-              Expanded(child: Text('Laporan $monthName', style: AppText.title)),
+              Expanded(
+                child: Text('Laporan $monthName', style: AppText.title),
+              ),
               IconButton(
                 tooltip: 'Pilih bulan',
                 onPressed: _pickMonth,
@@ -238,10 +237,7 @@ class _ReportTabState extends State<ReportTab> {
               const SizedBox(height: 16),
               _BudgetHint(budgets, onTap: () => setState(() => _view = 'budget')),
             ],
-            if (!income && r.expense > 0) ...[
-              const SizedBox(height: 16),
-              _NeedSplit(r, month: _month, labelId: _labelId),
-            ],
+            if (!income && r.expense > 0) ...[const SizedBox(height: 16), _NeedSplit(r, month: _month, labelId: _labelId)],
             const SizedBox(height: 16),
             _Trend(
               title: income ? 'Tren pemasukan' : 'Tren pengeluaran',
@@ -280,8 +276,7 @@ class _Kpi extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: CountUp(
               amount,
-              builder: (v) =>
-                  Text(formatAmount(v), style: AppText.amount.copyWith(fontSize: 18, color: color ?? c.ink)),
+              builder: (v) => Text(formatAmount(v), style: AppText.amount.copyWith(fontSize: 18, color: color ?? c.ink)),
             ),
           ),
         ],
@@ -298,10 +293,7 @@ class _Card extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
-    decoration: BoxDecoration(
-      color: AppColors.of(context).surface,
-      borderRadius: BorderRadius.circular(AppRadius.hero),
-    ),
+    decoration: BoxDecoration(color: AppColors.of(context).surface, borderRadius: BorderRadius.circular(AppRadius.hero)),
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
   );
 }
@@ -415,10 +407,7 @@ class _CategoryCardState extends State<_CategoryCard> {
       widget.month,
       widget.labelId,
       '(r.category_id IN (SELECT value FROM json_each(?5)) OR (?6 = 1 AND r.category_id IS NULL))',
-      [
-        jsonEncode([for (final m in members) ?m.id]),
-        members.any((m) => m.id == null) ? 1 : 0,
-      ],
+      [jsonEncode([for (final m in members) ?m.id]), members.any((m) => m.id == null) ? 1 : 0],
     );
     if (!mounted) return;
     final amount = parts[i].amount;
@@ -469,11 +458,7 @@ class _CategoryCardState extends State<_CategoryCard> {
               padding: const EdgeInsets.symmetric(vertical: 5),
               child: Row(
                 children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(color: colors[i], shape: BoxShape.circle),
-                  ),
+                  Container(width: 10, height: 10, decoration: BoxDecoration(color: colors[i], shape: BoxShape.circle)),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -615,9 +600,7 @@ class _CategoryCardState extends State<_CategoryCard> {
                       painter: _DonutPainter([for (final p in parts) p.amount], colors, t, picked),
                       child: child,
                     ),
-                    child: Center(
-                      child: AnimatedSwitcher(duration: fade, child: middle()),
-                    ),
+                    child: Center(child: AnimatedSwitcher(duration: fade, child: middle())),
                   ),
                 ),
               ),
@@ -625,9 +608,7 @@ class _CategoryCardState extends State<_CategoryCard> {
           ),
           const SizedBox(height: 8),
           Text(
-            picked == null
-                ? 'Ketuk warna untuk melihat rinciannya'
-                : 'Ketuk tengah lingkaran untuk daftar transaksinya',
+            picked == null ? 'Ketuk warna untuk melihat rinciannya' : 'Ketuk tengah lingkaran untuk daftar transaksinya',
             textAlign: TextAlign.center,
             style: AppText.caption.copyWith(color: c.inkMuted),
           ),
@@ -824,11 +805,7 @@ class _NeedSplit extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(color: colors[p.$1], shape: BoxShape.circle),
-                  ),
+                  Container(width: 10, height: 10, decoration: BoxDecoration(color: colors[p.$1], shape: BoxShape.circle)),
                   const SizedBox(width: 8),
                   Expanded(child: Text(needLevelLabels[p.$1]!, style: AppText.label)),
                   Text(formatAmount(p.$2), style: AppText.label.copyWith(color: c.inkMuted)),
@@ -837,10 +814,7 @@ class _NeedSplit extends StatelessWidget {
                     child: Text(
                       percentOf(p.$2, r.expense),
                       textAlign: TextAlign.end,
-                      style: AppText.label.copyWith(
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
+                      style: AppText.label.copyWith(fontWeight: FontWeight.w600, fontFeatures: const [FontFeature.tabularFigures()]),
                     ),
                   ),
                   const SizedBox(width: 4),
@@ -859,13 +833,7 @@ class _NeedSplit extends StatelessWidget {
 /// Six months of one series. The chosen month is the dark bar with its value; tapping another
 /// month opens it.
 class _Trend extends StatelessWidget {
-  const _Trend({
-    required this.title,
-    required this.totals,
-    required this.end,
-    required this.selected,
-    required this.onSelect,
-  });
+  const _Trend({required this.title, required this.totals, required this.end, required this.selected, required this.onSelect});
 
   final String title;
   final List<int> totals; // oldest first, ending at [end]
@@ -898,8 +866,7 @@ class _Trend extends StatelessWidget {
           values: totals,
           labels: [for (final m in months) DateFormat('MMM', 'id_ID').format(m)],
           readouts: [
-            for (final (i, m) in months.indexed)
-              '${DateFormat('MMMM yyyy', 'id_ID').format(m)}: ${formatAmount(totals[i])}',
+            for (final (i, m) in months.indexed) '${DateFormat('MMMM yyyy', 'id_ID').format(m)}: ${formatAmount(totals[i])}',
           ],
           selected: months.indexOf(selected),
           onSelect: (i) => onSelect(months[i]),

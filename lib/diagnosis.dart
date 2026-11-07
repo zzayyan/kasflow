@@ -94,6 +94,12 @@ class GoalStatus {
   final int savedPerMonth; // average over the last 3 months
 }
 
+/// The reason on a pillar that needs need levels set on categories; the screen links it to Kategori.
+const setLevels = 'Atur tingkat kebutuhan kategori';
+
+/// The reason on a pillar that can't be weighed against income because none was recorded.
+const noIncome = 'Tidak ada pemasukan tercatat';
+
 const _liquid = {'cash', 'bank', 'ewallet', 'savings'};
 
 /// Scores [month] (any day in it; a full month that has ended).
@@ -107,19 +113,25 @@ Diagnosis diagnose({
 }) {
   final end = DateTime(month.year, month.month + 1); // exclusive
   final windowStart = DateTime(month.year, month.month - 2); // the 3-month average starts here
-  // Months of that window with records: someone who started recording last month has 2, and
-  // dividing by 3 would understate every average.
+  // Months of that window with records, the first one counted in part from its first record:
+  // recording since 25 Sep gives 1.2 months for October, where dividing by 3 would understate
+  // every average.
   final first = records.isEmpty ? month : records.map((r) => r.occurredAt).reduce((a, b) => a.isBefore(b) ? a : b);
-  final span = ((month.year - first.year) * 12 + month.month - first.month + 1).clamp(1, 3);
+  final firstDays = DateTime(first.year, first.month + 1, 0).day;
+  final span = first.isBefore(windowStart)
+      ? 3.0
+      : (month.year - first.year) * 12 + month.month - first.month + (firstDays - first.day + 1) / firstDays;
   final balances = _balances(accounts, records, end);
 
-  final excluded = {
+  // Cash flow: records on accounts that count towards statistics. Archived accounts are not in
+  // [accounts] at all, so their records drop out here too.
+  final counted = {
     for (final a in accounts)
-      if (a.excluded) a.id,
+      if (!a.excluded) a.id,
   };
   final flow = [
     for (final r in records)
-      if (!excluded.contains(r.accountId) && !r.occurredAt.isBefore(windowStart) && r.occurredAt.isBefore(end)) r,
+      if (counted.contains(r.accountId) && !r.occurredAt.isBefore(windowStart) && r.occurredAt.isBefore(end)) r,
   ];
   int sum(bool Function(DiagRecord r) test) => flow.where(test).fold(0, (s, r) => s + r.amount);
   final income = sum((r) => r.type == 'income');
@@ -127,11 +139,9 @@ Diagnosis diagnose({
   final unleveled = sum((r) => r.type == 'expense' && r.needLevel == null);
   final essentials = sum((r) => r.type == 'expense' && (r.needLevel == 'must' || r.needLevel == 'need')) / span;
   final want = sum((r) => r.type == 'expense' && r.needLevel == 'want');
-  const setLevels = 'Atur tingkat kebutuhan kategori';
-  const noIncome = 'Tidak ada pemasukan tercatat';
   final levelsUnclear = unleveled * 5 > expense; // over 20%
 
-  final liquid = accounts.where((a) => _liquid.contains(a.type)).fold(0, (s, a) => s + balances[a.id]!);
+  final liquid = accounts.where((a) => !a.excluded && _liquid.contains(a.type)).fold(0, (s, a) => s + balances[a.id]!);
 
   Pillar emergency() {
     if (levelsUnclear) return const Pillar(PillarKind.emergency, Health.unknown, reason: setLevels);
@@ -280,7 +290,8 @@ class CategoryAmount {
 
 /// What the diagnose-finance Edge Function sends to Gemini: statuses, the numbers behind them, and
 /// category and goal names, in rupiah rounded down to thousands. Payee, notes, account names,
-/// receipt lines and dates never go in. Its JSON also marks a cached narrative stale when it changes.
+/// receipt lines and transaction dates never go in; only the month and goal target months do.
+/// Its JSON also marks a cached narrative stale when it changes.
 Map<String, Object?> diagnosisPayload(Diagnosis d, {required List<CategoryAmount> categories}) {
   int rp(int cents) => (cents / 100 / 1000).floor() * 1000;
   String ym(DateTime m) => '${m.year}-${m.month.toString().padLeft(2, '0')}';

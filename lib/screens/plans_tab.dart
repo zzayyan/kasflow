@@ -67,15 +67,13 @@ Stream<List<BudgetView>> watchBudgets() => db
           await () async {
             final (start, end) = periodRange(b['period'] as String, now);
             final today = DateTime(now.year, now.month, now.day);
-            Future<int> spentBetween(DateTime from, DateTime to) async =>
-                (await db.get(budgetSpentSql, [
-                      utcIso(from),
-                      utcIso(to),
-                      b['category_ids'] ?? '[]',
-                      b['account_ids'] ?? '[]',
-                      b['label_ids'] ?? '[]',
-                    ]))['spent']
-                    as int;
+            Future<int> spentBetween(DateTime from, DateTime to) async => (await db.get(budgetSpentSql, [
+              utcIso(from),
+              utcIso(to),
+              b['category_ids'] ?? '[]',
+              b['account_ids'] ?? '[]',
+              b['label_ids'] ?? '[]',
+            ]))['spent'] as int;
             return BudgetView(
               b,
               await spentBetween(start, end),
@@ -110,7 +108,8 @@ class _PlansTabState extends State<PlansTab> {
       db
           .watch('SELECT * FROM planned_payments ORDER BY next_due_date, name')
           .listen((rows) => _set(() => _bills = rows)),
-      watchBudgets().listen((rows) => _set(() => _budgets = rows)),
+      watchBudgets()
+          .listen((rows) => _set(() => _budgets = rows)),
       // Saved = the linked account's balance, derived from records like every balance.
       db
           .watch('''
@@ -630,11 +629,7 @@ class _BudgetCard extends StatelessWidget {
               Row(
                 children: [
                   if (level != BudgetLevel.ok) ...[
-                    Icon(
-                      over ? Icons.error_outline : Icons.warning_amber_rounded,
-                      size: 13,
-                      color: over ? c.alert : c.ink,
-                    ),
+                    Icon(over ? Icons.error_outline : Icons.warning_amber_rounded, size: 13, color: over ? c.alert : c.ink),
                     const SizedBox(width: 4),
                   ],
                   Expanded(
@@ -718,13 +713,7 @@ class _BudgetCard extends StatelessWidget {
         (SELECT name FROM categories WHERE id = r.category_id) AS category
       $_budgetRecordsSql
       ORDER BY julianday(r.occurred_at) DESC''',
-      [
-        utcIso(start),
-        utcIso(end),
-        b.row['category_ids'] ?? '[]',
-        b.row['account_ids'] ?? '[]',
-        b.row['label_ids'] ?? '[]',
-      ],
+      [utcIso(start), utcIso(end), b.row['category_ids'] ?? '[]', b.row['account_ids'] ?? '[]', b.row['label_ids'] ?? '[]'],
     );
     if (!context.mounted) return;
     await showRecordsSheet(
@@ -790,7 +779,9 @@ class _Goals extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rows = [for (var i = 0; i < goals.length; i += 2) goals.sublist(i, (i + 2).clamp(0, goals.length))];
+    final rows = [
+      for (var i = 0; i < goals.length; i += 2) goals.sublist(i, (i + 2).clamp(0, goals.length)),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -880,9 +871,7 @@ class _GoalCard extends StatelessWidget {
               Row(
                 children: [
                   if (statusIcon != null) ...[Icon(statusIcon, size: 13, color: muted), const SizedBox(width: 4)],
-                  Expanded(
-                    child: Text(status, style: AppText.caption.copyWith(color: muted)),
-                  ),
+                  Expanded(child: Text(status, style: AppText.caption.copyWith(color: muted))),
                 ],
               ),
               const Spacer(),
@@ -1204,8 +1193,7 @@ class _BudgetFormState extends State<BudgetForm> {
   void initState() {
     super.initState();
     if (widget.budget case final b?) {
-      Set<String> ids(Object? raw) =>
-          raw is String && raw.isNotEmpty ? {...(jsonDecode(raw) as List).cast<String>()} : {};
+      Set<String> ids(Object? raw) => raw is String && raw.isNotEmpty ? {...(jsonDecode(raw) as List).cast<String>()} : {};
       _name.text = b['name'] as String;
       _amount.text = NumberFormat.decimalPattern('id_ID').format((b['amount'] as int) / 100);
       _period = periodLabels.containsKey(b['period']) ? b['period'] as String : 'month';
@@ -1242,18 +1230,10 @@ class _BudgetFormState extends State<BudgetForm> {
         '''
         UPDATE budgets SET name = ?, period = ?, amount = ?, category_ids = ?, label_ids = ?, updated_at = ?
         WHERE id = ?''',
-        [
-          name,
-          _period,
-          amount,
-          jsonEncode([..._selected]),
-          jsonEncode([..._labelIds]),
-          now,
-          b['id'],
-        ],
+        [name, _period, amount, jsonEncode([..._selected]), jsonEncode([..._labelIds]), now, b['id']],
       );
       haptic(Haptic.click); // saved
-      if (mounted) Navigator.pop(context);
+    if (mounted) Navigator.pop(context);
       return;
     }
     await db.execute(
