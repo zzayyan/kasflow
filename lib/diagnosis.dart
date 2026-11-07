@@ -107,6 +107,10 @@ Diagnosis diagnose({
 }) {
   final end = DateTime(month.year, month.month + 1); // exclusive
   final windowStart = DateTime(month.year, month.month - 2); // the 3-month average starts here
+  // Months of that window with records: someone who started recording last month has 2, and
+  // dividing by 3 would understate every average.
+  final first = records.isEmpty ? month : records.map((r) => r.occurredAt).reduce((a, b) => a.isBefore(b) ? a : b);
+  final span = ((month.year - first.year) * 12 + month.month - first.month + 1).clamp(1, 3);
   final balances = _balances(accounts, records, end);
 
   final excluded = {
@@ -121,7 +125,7 @@ Diagnosis diagnose({
   final income = sum((r) => r.type == 'income');
   final expense = sum((r) => r.type == 'expense');
   final unleveled = sum((r) => r.type == 'expense' && r.needLevel == null);
-  final essentials = sum((r) => r.type == 'expense' && (r.needLevel == 'must' || r.needLevel == 'need')) / 3;
+  final essentials = sum((r) => r.type == 'expense' && (r.needLevel == 'must' || r.needLevel == 'need')) / span;
   final want = sum((r) => r.type == 'expense' && r.needLevel == 'want');
   const setLevels = 'Atur tingkat kebutuhan kategori';
   const noIncome = 'Tidak ada pemasukan tercatat';
@@ -150,7 +154,7 @@ Diagnosis diagnose({
       PillarKind.savings,
       _band(rate, bad: 0.1, good: 0.2),
       value: rate,
-      amounts: {'income_per_month': income ~/ 3, 'expense_per_month': expense ~/ 3},
+      amounts: {'income_per_month': income ~/ span, 'expense_per_month': expense ~/ span},
     );
   }
 
@@ -158,12 +162,12 @@ Diagnosis diagnose({
     final perMonth = bills.where((b) => b.type == 'expense').fold(0.0, (s, b) => s + _monthly(b));
     if (perMonth == 0) return const Pillar(PillarKind.fixedCosts, Health.good, value: 0);
     if (income == 0) return const Pillar(PillarKind.fixedCosts, Health.bad, reason: noIncome);
-    final share = perMonth / (income / 3);
+    final share = perMonth / (income / span);
     return Pillar(
       PillarKind.fixedCosts,
       _bandLow(share, good: 0.3, bad: 0.5),
       value: share,
-      amounts: {'bills_per_month': perMonth.round(), 'income_per_month': income ~/ 3},
+      amounts: {'bills_per_month': perMonth.round(), 'income_per_month': income ~/ span},
     );
   }
 
@@ -186,7 +190,7 @@ Diagnosis diagnose({
     final share = paid == 0 ? 0.0 : paid / income;
     final health = _bandLow(share, good: 0.3, bad: 0.4);
     final owed = [...loans, ...cards].fold(0, (s, id) => s + (balances[id]! < 0 ? -balances[id]! : 0));
-    final amounts = {'installments_per_month': paid ~/ 3, 'owed': owed};
+    final amounts = {'installments_per_month': paid ~/ span, 'owed': owed};
     // A card owed more at each of the last three month ends is not being paid off.
     final endTwoBack = _balances(accounts, records, DateTime(month.year, month.month - 1));
     final endOneBack = _balances(accounts, records, DateTime(month.year, month.month));
@@ -210,7 +214,7 @@ Diagnosis diagnose({
       PillarKind.spending,
       _bandLow(share, good: 0.3, bad: 0.4),
       value: share,
-      amounts: {'want_per_month': want ~/ 3, 'expense_per_month': expense ~/ 3},
+      amounts: {'want_per_month': want ~/ span, 'expense_per_month': expense ~/ span},
     );
   }
 
@@ -234,7 +238,7 @@ Diagnosis diagnose({
       final saved = balances[g.accountId] ?? 0;
       final plan = planGoal(saved: saved, target: g.target, targetDate: g.targetDate, now: end);
       if (plan.reached) continue;
-      final pace = (saved - (threeBack[g.accountId] ?? 0)) / 3;
+      final pace = (saved - (threeBack[g.accountId] ?? 0)) / span;
       goalStatuses.add(GoalStatus(g.name, g.target, saved, g.targetDate!, plan.perMonth, pace.round()));
       if (!plan.late && pace >= plan.perMonth!) continue;
       behind++;

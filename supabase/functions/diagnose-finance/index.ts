@@ -31,7 +31,7 @@ Answer:
 - steps: exactly three concrete actions for next month, most urgent first, taken from bad and warn pillars. When nothing is bad or warn, give steps that keep or improve the strongest areas. Each step:
   - title: an imperative of at most 9 words with a rupiah amount, such as "Sisihkan Rp 1,5 jt per bulan ke dana darurat".
   - why: one or two sentences citing numbers from the JSON (category names, amounts, changes from last month) that justify it.
-Only use numbers that are in the JSON or simple sums and differences of them. Write amounts the Indonesian way: "Rp 1,5 jt", "Rp 900 rb", "Rp 16,8 jt".`;
+Only use numbers that are in the JSON or simple sums and differences of them. Write amounts the Indonesian way: "Rp 1,5 jt", "Rp 900 rb", "Rp 16,8 jt"; months with one decimal ("5,5 bulan"); shares as whole percentages ("31%").`;
 
 const SCHEMA = {
   type: "object",

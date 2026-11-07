@@ -309,7 +309,7 @@ void main() {
   test('pillars come worst first, unknown last, and are counted per health', () {
     final d = diagnose(
       month: oct,
-      accounts: const [DiagAccount(id: 'bank', type: 'bank', initialBalance: 600)],
+      accounts: const [DiagAccount(id: 'bank', type: 'bank', initialBalance: 1800)],
       records: [
         rec('income', 1000, DateTime(2026, 10, 1)),
         rec('expense', 600, DateTime(2026, 10, 2), need: 'need'),
@@ -335,6 +335,26 @@ void main() {
     expect(d.count(Health.warn), 2);
     expect(d.count(Health.bad), 1);
     expect(d.count(Health.unknown), 2);
+  });
+
+  test('averages cover only the months since the first record, not three empty ones', () {
+    final d = diagnose(
+      month: oct,
+      accounts: const [DiagAccount(id: 'bank', type: 'bank', initialBalance: 1000)],
+      records: [
+        for (final m in [9, 10]) ...[
+          rec('income', 1000, DateTime(2026, m, 1)),
+          rec('expense', 500, DateTime(2026, m, 3), need: 'must'),
+        ],
+      ],
+      bills: const [DiagBill(type: 'expense', amount: 300, rule: 'FREQ=MONTHLY;BYMONTHDAY=1')],
+      budgets: const [],
+      goals: const [],
+    );
+    Pillar p(PillarKind k) => d.pillars.firstWhere((p) => p.kind == k);
+    expect(p(PillarKind.emergency).value, closeTo(4, 1e-9)); // 2000 left / 500 a month over 2 months
+    expect(p(PillarKind.emergency).amounts['essentials_per_month'], 500);
+    expect(p(PillarKind.fixedCosts).value, closeTo(0.3, 1e-9)); // 300 / 1000 a month
   });
 
   test('emergency fund is unknown without any must or need spending', () {

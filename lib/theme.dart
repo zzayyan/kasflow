@@ -29,6 +29,8 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.alert,
     required this.onAlert,
     required this.alertSoft,
+    required this.warn,
+    required this.warnSoft,
     required this.needLevels,
     required this.chart,
     required this.chartOther,
@@ -56,6 +58,8 @@ class AppColors extends ThemeExtension<AppColors> {
   final Color alert; // late bills, over budget, badges. Never used for "Ingin".
   final Color onAlert;
   final Color alertSoft; // background behind an alert
+  final Color warn; // "Waspada" text and icons in Diagnosis CFO. Tan stays for "Ingin".
+  final Color warnSoft; // background behind a warning
   /// must / need / want / no level. Tan is reserved for "want" (Ingin).
   final Map<String?, Color> needLevels;
 
@@ -88,6 +92,8 @@ class AppColors extends ThemeExtension<AppColors> {
     alert: Color(0xFFA4431F),
     onAlert: Color(0xFFFFFFFF),
     alertSoft: Color(0xFFF6E1D8),
+    warn: Color(0xFF6E4E00),
+    warnSoft: Color(0xFFF7EBC9),
     needLevels: {
       'must': Color(0xFF1E4A35),
       'need': Color(0xFF4F8A66), // the design's #7FAF8C was too close to want's tan (dataviz validator)
@@ -121,6 +127,8 @@ class AppColors extends ThemeExtension<AppColors> {
     alert: Color(0xFFE8876A),
     onAlert: Color(0xFF0F1612),
     alertSoft: Color(0xFF3A2119),
+    warn: Color(0xFFF2D58A),
+    warnSoft: Color(0xFF3A3118),
     needLevels: {
       'must': Color(0xFFA9D2B2),
       'need': Color(0xFF4F8A66),
@@ -157,6 +165,8 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? alert,
     Color? onAlert,
     Color? alertSoft,
+    Color? warn,
+    Color? warnSoft,
     Map<String?, Color>? needLevels,
     List<Color>? chart,
     Color? chartOther,
@@ -183,6 +193,8 @@ class AppColors extends ThemeExtension<AppColors> {
     alert: alert ?? this.alert,
     onAlert: onAlert ?? this.onAlert,
     alertSoft: alertSoft ?? this.alertSoft,
+    warn: warn ?? this.warn,
+    warnSoft: warnSoft ?? this.warnSoft,
     needLevels: needLevels ?? this.needLevels,
     chart: chart ?? this.chart,
     chartOther: chartOther ?? this.chartOther,
@@ -215,6 +227,8 @@ class AppColors extends ThemeExtension<AppColors> {
       alert: l(alert, other.alert),
       onAlert: l(onAlert, other.onAlert),
       alertSoft: l(alertSoft, other.alertSoft),
+      warn: l(warn, other.warn),
+      warnSoft: l(warnSoft, other.warnSoft),
       // Category colors don't blend meaningfully; switch halfway.
       needLevels: t < 0.5 ? needLevels : other.needLevels,
       chart: t < 0.5 ? chart : other.chart,
