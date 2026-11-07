@@ -6,9 +6,14 @@ const MODEL = "gemini-3.5-flash-lite";
 /** A piece of the user's turn: text, or an inline image such as a receipt photo. */
 export type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
 
-/** Asks Gemini to answer [input] as JSON matching [schema], and returns the response to send back. */
-export async function askGemini(instruction: string, input: string | Part[], schema: object): Promise<Response> {
-  const gemini = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+/** Asks Gemini [model] to answer [input] as JSON matching [schema], and returns the response to send back. */
+export async function askGemini(
+  instruction: string,
+  input: string | Part[],
+  schema: object,
+  model = MODEL,
+): Promise<Response> {
+  const gemini = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": Deno.env.get("GEMINI_API_KEY") ?? "" },
     body: JSON.stringify({

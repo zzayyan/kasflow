@@ -56,6 +56,50 @@ void main() {
     );
     expect(p.value, closeTo(1.4, 1e-9)); // 784 left / 560 a month
     expect(p.health, Health.bad);
+    expect(p.amounts, {'liquid': 784, 'essentials_per_month': 560});
+  });
+
+  test('payload for Gemini: rupiah rounded to thousands, goals by name, nothing else', () {
+    final d = diagnose(
+      month: oct,
+      accounts: const [
+        DiagAccount(id: 'bank', type: 'bank', initialBalance: 790049900), // Rp 7.900.499
+        DiagAccount(id: 'laptop', type: 'savings', initialBalance: 0),
+      ],
+      records: [
+        for (final m in [8, 9, 10]) ...[
+          rec('income', 920000000, DateTime(2026, m, 1)),
+          rec('expense', 560000000, DateTime(2026, m, 5), need: 'need'),
+          rec('expense', 200000000, DateTime(2026, m, 6), need: 'want'),
+          rec('transfer', 10000000, DateTime(2026, m, 7), to: 'laptop'),
+        ],
+      ],
+      bills: const [],
+      budgets: const [],
+      goals: [DiagGoal(name: 'Laptop', accountId: 'laptop', target: 100000000, targetDate: DateTime(2027, 3, 1))],
+    );
+    final payload = diagnosisPayload(
+      d,
+      categories: const [CategoryAmount('Belanja Online', 'want', 145049900, 103600000)],
+    );
+    expect(payload['month'], '2026-10');
+    expect(payload['categories'], [
+      {'name': 'Belanja Online', 'level': 'want', 'amount': 1450000, 'previous': 1036000},
+    ]);
+    expect(payload['goals'], [
+      {
+        'name': 'Laptop',
+        'target': 1000000,
+        'saved': 300000,
+        'target_month': '2027-03',
+        'needed_per_month': 175000,
+        'saved_per_month': 100000,
+      },
+    ]);
+    final emergency = (payload['pillars'] as List).firstWhere((p) => p['pillar'] == 'emergency');
+    expect(emergency['status'], 'bad');
+    expect(emergency['liquid'], 12700000); // Rp 12.400.499 in the bank + Rp 300.000 saved, rounded down
+    expect(emergency.keys, unorderedEquals(['pillar', 'status', 'value', 'note', 'liquid', 'essentials_per_month']));
   });
 
   test('emergency fund and spending go unknown when over 20% of spending has no need level', () {
@@ -206,7 +250,7 @@ void main() {
       PillarKind.goals,
       accounts: accounts,
       records: saving(perMonth),
-      goals: [DiagGoal(accountId: 'laptop', target: 1000, targetDate: date)],
+      goals: [DiagGoal(name: 'Laptop', accountId: 'laptop', target: 1000, targetDate: date)],
     );
 
     test('on track when the last 3 months saved at least what the target date needs', () {
