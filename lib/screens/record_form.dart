@@ -478,7 +478,7 @@ class _RecordFormState extends State<RecordForm> {
           FormRow(
             icon: Icons.percent,
             label: 'Selisih dari total',
-            value: gap > 0 ? 'Pajak, servis, atau pembulatan' : 'Diskon',
+            value: gap > 0 ? 'Pajak & servis' : 'Diskon',
             trailing: Text('${gap > 0 ? '+' : '-'}${formatAmount(gap.abs())}'),
           ),
       ],
@@ -783,6 +783,12 @@ class _RecordFormState extends State<RecordForm> {
                 ),
               ],
             ),
+            // What the receipt held, read before judging the category below.
+            if (_items.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              FormLabel('Rincian item · ${_items.length} item'),
+              _itemsCard(c),
+            ],
             if (!transfer && chips.isNotEmpty) ...[
               const SizedBox(height: 18),
               const FormLabel('Kategori lain'),
@@ -807,11 +813,6 @@ class _RecordFormState extends State<RecordForm> {
             const SizedBox(height: 18),
             const FormLabel('Label'),
             LabelChips(labels: widget.labels, selected: _labelIds, onChanged: (ids) => _labelIds = ids),
-            if (_items.isNotEmpty) ...[
-              const SizedBox(height: 18),
-              FormLabel('Rincian item · ${_items.length} item'),
-              _itemsCard(c),
-            ],
           ],
         ),
       ),
