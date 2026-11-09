@@ -430,6 +430,7 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
   Future<void> _ask() async {
     final view = _data?.view;
     if (view == null || _asking) return;
+    final replacing = _advice != null;
     setState(() => _asking = true);
     final advice = await fetchAdvice(view);
     if (!mounted) return;
@@ -440,7 +441,12 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
         _stale = false;
       }
     });
-    if (advice == null) showMessage(context, 'Gagal memperbarui diagnosis. Coba lagi nanti.');
+    if (advice == null) {
+      showMessage(context, 'Gagal memperbarui diagnosis. Coba lagi nanti.');
+    } else if (replacing) {
+      // New wording can read much like the old, so success has to be said.
+      showMessage(context, 'Diagnosis diperbarui.');
+    }
   }
 
   @override
@@ -463,7 +469,9 @@ class _DiagnosisPageState extends State<DiagnosisPage> {
                   const SizedBox(height: 16),
                   _Steps(
                     steps: _advice?.steps ?? _ruleSteps(view),
-                    caption: _advice != null
+                    caption: _advice != null && _asking
+                        ? 'Sedang disusun ulang oleh AI…'
+                        : _advice != null
                         ? 'Disusun dari pilar Bahaya dan Waspada'
                         : _asking
                         ? 'Menunggu AI. Sementara dari aturan dasar.'
@@ -563,7 +571,12 @@ class _Summary extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (advice != null)
-            Text(advice.summary, style: body)
+            // Dimmed while new advice is on its way, as this text is about to be replaced.
+            AnimatedOpacity(
+              opacity: asking ? 0.55 : 1,
+              duration: motion(context, const Duration(milliseconds: 200)),
+              child: Text(advice.summary, style: body),
+            )
           else if (asking)
             Row(
               children: [
@@ -634,21 +647,32 @@ class _Summary extends StatelessWidget {
                 child: Text(
                   advice == null
                       ? 'Ringkasan dan langkah AI muncul setelah koneksi pulih.'
+                      : asking
+                      ? 'AI sedang menyusun ulang diagnosis…'
                       : 'Dibuat AI dari catatanmu. Bukan nasihat keuangan profesional.',
                   style: AppText.caption.copyWith(color: c.onHeroMuted),
                 ),
               ),
               if (advice != null)
                 IconButton(
-                  tooltip: 'Perbarui diagnosis',
+                  tooltip: asking ? 'Sedang memperbarui diagnosis' : 'Perbarui diagnosis',
                   onPressed: asking
                       ? null
                       : () {
                           haptic(Haptic.tick);
                           onAsk();
                         },
-                  style: IconButton.styleFrom(backgroundColor: c.heroChip, fixedSize: const Size.square(44)),
-                  icon: Icon(Icons.refresh, size: 18, color: c.onHeroChip),
+                  style: IconButton.styleFrom(
+                    backgroundColor: c.heroChip,
+                    disabledBackgroundColor: c.heroChip,
+                    fixedSize: const Size.square(44),
+                  ),
+                  icon: asking
+                      ? SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: c.onHeroChip),
+                        )
+                      : Icon(Icons.refresh, size: 18, color: c.onHeroChip),
                 ),
             ],
           ),
@@ -1292,11 +1316,22 @@ class _BandBar extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------- the card at the top of Laporan
+// ---------------------------------------------------------------- the card on Beranda
 
-/// The way into Diagnosis CFO from Laporan: the last full month's statuses and the first step.
+/// The statuses in the order the card's strip and counts list them.
+const _healthWords = [
+  (Health.good, 'sehat'),
+  (Health.warn, 'waspada'),
+  (Health.bad, 'bahaya'),
+  (Health.unknown, 'belum dinilai'),
+];
+
+/// The way into Diagnosis CFO from Beranda: the last full month's pillars at a glance and the first step.
 class DiagnosisCard extends StatefulWidget {
-  const DiagnosisCard({super.key});
+  const DiagnosisCard({super.key, this.hidden = false});
+
+  /// Beranda's balances are hidden: the first step is left out, as the advice may name amounts.
+  final bool hidden;
 
   @override
   State<DiagnosisCard> createState() => _DiagnosisCardState();
@@ -1331,11 +1366,20 @@ class _DiagnosisCardState extends State<DiagnosisCard> {
     if (data == null) return const SizedBox.shrink();
     final view = data.view;
     final step = _firstStep;
+    final segments = view == null
+        ? const <Health>[]
+        : [for (final (h, _) in _healthWords) for (var n = 0; n < view.scored.count(h); n++) h];
+    final counts = view == null
+        ? ''
+        : [
+            for (final (h, word) in _healthWords)
+              if (view.scored.count(h) > 0) '${view.scored.count(h)} $word',
+          ].join(' · ');
     return Material(
       color: c.surface,
-      borderRadius: BorderRadius.circular(AppRadius.card),
+      borderRadius: BorderRadius.circular(AppRadius.hero),
       child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.card),
+        borderRadius: BorderRadius.circular(AppRadius.hero),
         onTap: () async {
           haptic(Haptic.tick);
           await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const DiagnosisPage()));
@@ -1374,26 +1418,46 @@ class _DiagnosisCardState extends State<DiagnosisCard> {
                 ],
               ),
               if (view != null) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final (health, word) in [
-                      (Health.good, 'sehat'),
-                      (Health.warn, 'waspada'),
-                      (Health.bad, 'bahaya'),
-                    ])
-                      if (view.scored.count(health) > 0) HealthChip(health, text: '${view.scored.count(health)} $word'),
-                  ],
+                const SizedBox(height: 14),
+                // One segment per pillar, grouped Sehat to Belum dinilai so the strip reads as a share.
+                // The counts below say the same in words, so color is never the only signal.
+                ExcludeSemantics(
+                  child: Row(
+                    children: [
+                      for (final (i, health) in segments.indexed) ...[
+                        if (i > 0) const SizedBox(width: 3),
+                        Expanded(
+                          child: Container(
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: switch (health) {
+                                Health.good => c.primary,
+                                Health.warn => c.warn,
+                                Health.bad => c.alert,
+                                Health.unknown => c.surfaceMuted,
+                              },
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-                if (step != null) ...[
+                const SizedBox(height: 8),
+                Text(counts, style: AppText.caption.copyWith(color: c.inkMuted)),
+                if (step != null && !widget.hidden) ...[
                   const SizedBox(height: 12),
                   Divider(color: c.divider, height: 1),
                   const SizedBox(height: 10),
                   Text('Langkah pertama', style: AppText.caption.copyWith(color: c.inkMuted)),
                   const SizedBox(height: 2),
-                  Text(step, style: AppText.label.copyWith(fontSize: 14, fontWeight: FontWeight.w500)),
+                  Text(
+                    step,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.label.copyWith(fontSize: 14, fontWeight: FontWeight.w500),
+                  ),
                 ],
               ],
             ],

@@ -11,7 +11,6 @@ import '../money.dart';
 import '../reports.dart';
 import '../theme.dart';
 import '../ui.dart';
-import 'diagnosis_page.dart';
 import 'plans_tab.dart';
 
 // A11 cashflow report, after the "E · Laporan" artboard of the Cashflow UI/UX canvas.
@@ -187,8 +186,6 @@ class _ReportTabState extends State<ReportTab> {
               ),
             ],
           ),
-          // Always the last full month over every record, so it hides while a label narrows the rest.
-          if (_labelId == null) ...[const SizedBox(height: 16), const DiagnosisCard()],
           const SizedBox(height: 16),
           PillSwitch(
             options: const [('expense', 'Pengeluaran'), ('income', 'Pemasukan'), ('budget', 'Budget')],

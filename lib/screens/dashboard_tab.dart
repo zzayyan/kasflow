@@ -13,6 +13,7 @@ import '../theme.dart';
 import '../ui.dart';
 import 'accounts_tab.dart';
 import 'bills_tab.dart';
+import 'diagnosis_page.dart';
 import 'plans_tab.dart';
 import 'record_form.dart';
 import 'records_tab.dart';
@@ -252,6 +253,10 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                       selected: _weekDay,
                       onSelect: (i) => setState(() => _weekDay = i),
                     ),
+                    gap,
+                    // The report is the last full month's, so it is rebuilt when the month turns.
+                    // ponytail: loadDiagnosis rereads every record on each Beranda build; cache per month if slow.
+                    DiagnosisCard(key: ValueKey(_month), hidden: _hidden),
                     gap,
                     _RecentRecords(records: recent, onSeeAll: () => widget.onOpenTab(1)),
                   ],
