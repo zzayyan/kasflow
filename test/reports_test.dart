@@ -95,6 +95,13 @@ void main() {
     expect(percentChange(50, 0), null);
   });
 
+  test('a bill payment or a Wajib category is a fixed expense', () {
+    expect(isFixedExpense({'planned_payment_id': 'kos', 'need_level': null}), isTrue);
+    expect(isFixedExpense({'planned_payment_id': null, 'need_level': 'must'}), isTrue);
+    expect(isFixedExpense({'planned_payment_id': null, 'need_level': 'need'}), isFalse);
+    expect(isFixedExpense({'planned_payment_id': null, 'need_level': null}), isFalse);
+  });
+
   test('budget level and daily allowance', () {
     expect(budgetLevel(79, 100), BudgetLevel.ok);
     expect(budgetLevel(80, 100), BudgetLevel.warning);

@@ -80,8 +80,8 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
     unawaited(_weekSub?.cancel());
     _weekSub = _watch(
       '''
-      SELECT r.type, r.amount, r.occurred_at
-      FROM records r JOIN accounts a ON a.id = r.account_id
+      SELECT r.type, r.amount, r.occurred_at, r.planned_payment_id, c.need_level
+      FROM records r JOIN accounts a ON a.id = r.account_id LEFT JOIN categories c ON c.id = r.category_id
       WHERE r.type = 'expense' AND r.status = 'confirmed' AND a.exclude_from_stats = 0
         AND julianday(r.occurred_at) >= julianday(?1)''',
       (rows) => _weekRows = rows,
@@ -249,6 +249,7 @@ class _DashboardTabState extends State<DashboardTab> with WidgetsBindingObserver
                     ],
                     _WeekSpending(
                       totals: dayTotals(_weekRows, _today, 14, 'expense'),
+                      flexible: dayTotals(_weekRows.where((r) => !isFixedExpense(r)).toList(), _today, 14, 'expense'),
                       today: _today,
                       selected: _weekDay,
                       onSelect: (i) => setState(() => _weekDay = i),
@@ -592,12 +593,14 @@ class _AllowancePanel extends StatelessWidget {
       _ when overToday => (
         Icons.warning_amber_rounded,
         'Jatah hari ini',
-        '${b.row['name']} · lewat dari jatah ${short(today.perDay)}',
+        hidden ? '${b.row['name']} · $daysLeft hari lagi' : '${b.row['name']} · lewat dari jatah ${short(today.perDay)}',
       ),
       _ => (
         Icons.verified_user_outlined,
         'Jatah hari ini',
-        b.spentToday == 0
+        hidden
+            ? '${b.row['name']} · $daysLeft hari lagi'
+            : b.spentToday == 0
             ? '${b.row['name']} · sisa ${short(limit - b.spent)}, $daysLeft hari lagi'
             : '${b.row['name']} · terpakai ${short(b.spentToday)} dari ${short(today!.perDay)}',
       ),
@@ -643,9 +646,14 @@ class _AllowancePanel extends StatelessWidget {
               ),
               if (today != null) ...[
                 const SizedBox(width: 8),
+                // Hidden balances still answer "can I spend today?", in words instead of an amount.
                 Text(
-                  overToday ? '−${money(-today.left)}' : money(today.left),
-                  style: AppText.amount.copyWith(fontSize: 20, color: fg),
+                  hidden
+                      ? (overToday ? 'Lewat jatah' : 'Aman')
+                      : overToday
+                      ? '−${money(-today.left)}'
+                      : money(today.left),
+                  style: AppText.amount.copyWith(fontSize: hidden ? 16 : 20, color: fg),
                 ),
               ] else if (b == null)
                 Icon(Icons.chevron_right, size: 20, color: c.onHeroChip),
@@ -842,9 +850,16 @@ class _RecentRecords extends StatelessWidget {
 String _short(int cents) => cents == 0 ? 'Rp 0' : 'Rp ${NumberFormat.compact(locale: 'id_ID').format(cents / 100)}';
 
 class _WeekSpending extends StatelessWidget {
-  const _WeekSpending({required this.totals, required this.today, required this.selected, required this.onSelect});
+  const _WeekSpending({
+    required this.totals,
+    required this.flexible,
+    required this.today,
+    required this.selected,
+    required this.onSelect,
+  });
 
   final List<int> totals; // 14 days, oldest first, ending today
+  final List<int> flexible; // the same days without fixed expenses: what the comparison reads
   final DateTime today;
   final int selected; // 0-6 within the last seven
   final ValueChanged<int> onSelect;
@@ -853,16 +868,20 @@ class _WeekSpending extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final week = totals.sublist(7);
-    final before = totals.take(7).fold<int>(0, (sum, v) => sum + v);
-    final total = week.fold<int>(0, (sum, v) => sum + v);
+    int sum(Iterable<int> days) => days.fold<int>(0, (a, b) => a + b);
+    final total = sum(week);
     final days = [for (var i = 0; i < 7; i++) DateTime(today.year, today.month, today.day - 6 + i)];
-    final change = percentChange(total, before);
+    final change = percentChange(sum(flexible.skip(7)), sum(flexible.take(7)));
     final (IconData icon, String text, Color color) = switch (change) {
       // Nothing to compare with yet (a new user's first weeks): say so rather than leave a gap.
-      null => (Icons.remove, 'Belum ada pengeluaran di 7 hari sebelumnya', c.inkMuted),
-      final p when p.round() == 0 => (Icons.remove, 'Sama dengan 7 hari sebelumnya', c.inkMuted),
-      final p when p < 0 => (Icons.arrow_downward, '${p.abs().round()}% lebih hemat dari 7 hari sebelumnya', c.income),
-      final p => (Icons.arrow_upward, '${p.round()}% lebih banyak dari 7 hari sebelumnya', c.alert),
+      null => (Icons.remove, 'Belum ada pengeluaran di luar Wajib di 7 hari sebelumnya', c.inkMuted),
+      final p when p.round() == 0 => (Icons.remove, 'Sama dengan 7 hari sebelumnya, di luar Wajib', c.inkMuted),
+      final p when p < 0 => (
+        Icons.arrow_downward,
+        '${p.abs().round()}% lebih hemat dari 7 hari sebelumnya, di luar Wajib',
+        c.income,
+      ),
+      final p => (Icons.arrow_upward, '${p.round()}% lebih banyak dari 7 hari sebelumnya, di luar Wajib', c.alert),
     };
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),

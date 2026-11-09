@@ -157,6 +157,9 @@ List<int> niceTicks(int max, {int count = 3}) {
 /// Change in percent, or null when there is nothing to compare with.
 double? percentChange(int current, int previous) => previous == 0 ? null : (current - previous) / previous * 100;
 
+/// A paid bill or a Wajib category. One such payment, like rent, would swamp a week-on-week comparison.
+bool isFixedExpense(Map<String, dynamic> row) => row['planned_payment_id'] != null || row['need_level'] == 'must';
+
 enum BudgetLevel { ok, warning, over }
 
 BudgetLevel budgetLevel(int spent, int limit) => spent > limit
