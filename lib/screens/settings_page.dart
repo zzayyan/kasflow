@@ -19,8 +19,8 @@ import 'categories_page.dart';
 import 'labels_page.dart';
 
 // Pengaturan (gear on Beranda), after the "Usulan · Pengaturan" artboard: the data lists and this
-// phone's preferences. Profil (avatar on Beranda, "Usulan · Profil" artboard) holds who is signed
-// in, whether everything has reached the server, and logging out.
+// phone's preferences, ending in Keluar. Profil (avatar on Beranda, "Usulan · Profil" artboard)
+// holds who is signed in, whether everything has reached the server, and Keluar too.
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -262,6 +262,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
               trailing: Text('IDR', style: AppText.label.copyWith(color: c.inkMuted)),
             ),
           ]),
+          const SizedBox(height: AppSpace.section),
+          _LogoutButton(background: c.surface),
         ],
       ),
     );
@@ -343,34 +345,11 @@ class _ProfileSheetState extends State<_ProfileSheet> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _logout() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Keluar dari akun?'),
-        content: const Text('Data di HP ini dihapus. Semuanya tetap tersimpan di server dan kembali saat kamu masuk lagi.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Keluar')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    if (!await logout()) {
-      if (mounted) showMessage(context, 'Masih ada data yang belum tersinkron. Sambungkan internet dulu, lalu coba lagi.');
-      return;
-    }
-    await scheduleReminders(const []); // the next user on this phone must not get this user's bills
-    // The app's root swaps to the login page; drop this sheet from above it.
-    if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final name = userDisplayName();
     final email = supabase.auth.currentUser?.email ?? '';
-    final synced = _pending == 0;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(AppSpace.page, 0, AppSpace.page, 20),
@@ -419,30 +398,97 @@ class _ProfileSheetState extends State<_ProfileSheet> {
             const SizedBox(height: 18),
             _SyncCard(status: _status, pending: _pending, onRetry: reconnect),
             const SizedBox(height: 18),
-            FilledButton.icon(
-              onPressed: synced ? _logout : null,
-              icon: const Icon(Icons.logout, size: 20),
-              label: const Text('Keluar'),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(54),
-                backgroundColor: c.bg,
-                foregroundColor: c.alert,
-                disabledBackgroundColor: c.bg,
-                disabledForegroundColor: c.inkMuted,
-                textStyle: AppText.bodyStrong,
-              ),
-            ),
-            if (!synced) ...[
-              const SizedBox(height: AppSpace.tight),
-              Text(
-                'Bisa keluar setelah semua data tersinkron, supaya tidak ada transaksi yang hilang.',
-                textAlign: TextAlign.center,
-                style: AppText.caption.copyWith(color: c.inkMuted, height: 1.4),
-              ),
-            ],
+            _LogoutButton(background: c.bg),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// "Keluar" with its confirmation, shared by Profil and the foot of Pengaturan. Disabled, with the
+/// reason under it, while changes wait to upload: logging out clears this phone's copy.
+class _LogoutButton extends StatefulWidget {
+  const _LogoutButton({required this.background});
+
+  final Color background; // the page behind it differs from the sheet's
+  @override
+  State<_LogoutButton> createState() => _LogoutButtonState();
+}
+
+class _LogoutButtonState extends State<_LogoutButton> {
+  late final StreamSubscription<SyncStatus> _sub;
+  int _pending = 0;
+
+  Future<void> _refreshPending() async {
+    final stats = await db.getUploadQueueStats();
+    if (mounted) setState(() => _pending = stats.count);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = db.statusStream.listen((_) => unawaited(_refreshPending()));
+    unawaited(_refreshPending());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_sub.cancel());
+    super.dispose();
+  }
+
+  Future<void> _logout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Keluar dari akun?'),
+        content: const Text('Data di HP ini dihapus. Semuanya tetap tersimpan di server dan kembali saat kamu masuk lagi.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Keluar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!await logout()) {
+      if (mounted) showMessage(context, 'Masih ada data yang belum tersinkron. Sambungkan internet dulu, lalu coba lagi.');
+      return;
+    }
+    await scheduleReminders(const []); // the next user on this phone must not get this user's bills
+    // The app's root swaps to the login page; drop this page or sheet from above it.
+    if (mounted) Navigator.popUntil(context, (route) => route.isFirst);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final synced = _pending == 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FilledButton.icon(
+          onPressed: synced ? _logout : null,
+          icon: const Icon(Icons.logout, size: 20),
+          label: const Text('Keluar'),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(54),
+            backgroundColor: widget.background,
+            foregroundColor: c.alert,
+            disabledBackgroundColor: widget.background,
+            disabledForegroundColor: c.inkMuted,
+            textStyle: AppText.bodyStrong,
+          ),
+        ),
+        if (!synced) ...[
+          const SizedBox(height: AppSpace.tight),
+          Text(
+            'Bisa keluar setelah semua data tersinkron, supaya tidak ada transaksi yang hilang.',
+            textAlign: TextAlign.center,
+            style: AppText.caption.copyWith(color: c.inkMuted, height: 1.4),
+          ),
+        ],
+      ],
     );
   }
 }
