@@ -264,6 +264,41 @@ void haptic(Haptic kind) {
   unawaited(_native.invokeMethod<void>('haptic', kind.name).catchError((Object _) {})); // no vibrator: no feedback
 }
 
+/// The profile circle: the [initial] on the hero green, covered by the Google photo at [url] once it
+/// has loaded. Without a url, or offline, the initial stays.
+class UserAvatar extends StatelessWidget {
+  const UserAvatar({super.key, required this.size, required this.initial, required this.initialStyle, this.url});
+
+  final double size;
+  final String initial;
+  final TextStyle initialStyle;
+  final String? url;
+
+  @override
+  Widget build(BuildContext context) {
+    final circle = Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(color: AppColors.of(context).hero, shape: BoxShape.circle),
+      child: Text(initial, style: initialStyle),
+    );
+    final photo = url;
+    if (photo == null) return circle;
+    return SizedBox.square(
+      dimension: size,
+      child: ClipOval(
+        child: Image.network(
+          photo,
+          fit: BoxFit.cover,
+          frameBuilder: (_, child, frame, _) => frame == null ? circle : child,
+          errorBuilder: (_, _, _) => circle,
+        ),
+      ),
+    );
+  }
+}
+
 /// [d], or no time at all when the phone asks for no animations (Hapus animasi).
 Duration motion(BuildContext context, Duration d) => MediaQuery.disableAnimationsOf(context) ? Duration.zero : d;
 

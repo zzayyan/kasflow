@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -12,8 +13,13 @@ import 'schema.dart';
 const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
 const supabasePublishableKey = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
 const powersyncUrl = String.fromEnvironment('POWERSYNC_URL');
+// The Web OAuth client id (Google Cloud). Empty hides the Google button.
+const googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
 
 final _log = Logger('sync');
+
+/// The `prefs` row holding Diagnosis CFO's cached advice. It is the user's, so logout drops it.
+const diagnosisAdviceKey = 'diagnosis_advice';
 
 late final PowerSyncDatabase db;
 
@@ -117,19 +123,35 @@ Future<void> reconnect() async {
   _connect();
 }
 
-/// The name from sign-up metadata, else the part of the email before "@".
+/// The nickname the user set, else the first word of the sign-up or Google name (Google sends the
+/// full name and rewrites `name` at every sign-in, so a nickname can't live there), else the part
+/// of the email before "@".
 String userDisplayName() {
   final user = supabase.auth.currentUser;
-  final meta = user?.userMetadata?['name'] ?? user?.userMetadata?['full_name'];
-  final name = meta is String && meta.trim().isNotEmpty ? meta.trim() : (user?.email ?? '').split('@').first;
+  return displayNameFrom(user?.userMetadata, user?.email);
+}
+
+String displayNameFrom(Map<String, dynamic>? meta, String? email) {
+  String? text(Object? v) => v is String && v.trim().isNotEmpty ? v.trim() : null;
+  final name =
+      text(meta?['nickname']) ??
+      (text(meta?['name']) ?? text(meta?['full_name']))?.split(RegExp(r'\s+')).first ??
+      (email ?? '').split('@').first;
   return name.isEmpty ? 'Kamu' : name[0].toUpperCase() + name.substring(1);
 }
 
-/// Saves [name] as the account's name (auth `user_metadata.name`, also read when matching a bank
-/// notification to the user's own transfers). Needs the internet; false when it could not save.
+/// The Google profile photo (user metadata `avatar_url`, else `picture`); null for an email account.
+String? userAvatarUrl() {
+  final meta = supabase.auth.currentUser?.userMetadata;
+  final url = meta?['avatar_url'] ?? meta?['picture'];
+  return url is String && url.startsWith('https://') ? url : null;
+}
+
+/// Saves [name] as the account's nickname (auth `user_metadata.nickname`; `name` is left to
+/// sign-up and Google). Needs the internet; false when it could not save.
 Future<bool> setUserDisplayName(String name) async {
   try {
-    await supabase.auth.updateUser(UserAttributes(data: {'name': name})).timeout(const Duration(seconds: 15));
+    await supabase.auth.updateUser(UserAttributes(data: {'nickname': name})).timeout(const Duration(seconds: 15));
     return true;
   } on Exception catch (e) {
     _log.warning('could not save the name', e);
@@ -146,12 +168,53 @@ Future<void> setPref(String key, String value) => db.writeTransaction((tx) async
   await tx.execute('INSERT INTO prefs (id, value) VALUES (?, ?)', [key, value]);
 });
 
+bool _googleReady = false;
+
+Future<void> _initGoogle() async {
+  if (_googleReady) return;
+  await GoogleSignIn.instance.initialize(serverClientId: googleWebClientId);
+  _googleReady = true;
+}
+
+/// Native Google sign-in. Returns the signed-in user, or null when the account picker is canceled.
+/// Google may link to the existing user with the same verified email, so check `createdAt` before
+/// treating the result as a new account.
+Future<User?> signInWithGoogle() async {
+  await _initGoogle();
+  final GoogleSignInAccount account;
+  try {
+    account = await GoogleSignIn.instance.authenticate();
+  } on GoogleSignInException catch (e) {
+    if (e.code == GoogleSignInExceptionCode.canceled) return null;
+    rethrow;
+  }
+  final idToken = account.authentication.idToken;
+  if (idToken == null) throw const AuthException('Google tidak mengirim token. Coba lagi.');
+  return (await supabase.auth.signInWithIdToken(provider: OAuthProvider.google, idToken: idToken)).user;
+}
+
 /// Explicit logout. Refuses while changes are still waiting to upload, because
 /// clearing the local database would destroy them. Returns false when refused.
 Future<bool> logout() async {
   if (await db.getNextCrudTransaction() != null) return false;
+  if (googleWebClientId.isNotEmpty) {
+    // Else the picker keeps offering the last account. A Google failure must not block logging out.
+    try {
+      await _initGoogle();
+      await GoogleSignIn.instance.signOut();
+    } on Exception catch (e) {
+      _log.warning('could not sign out of Google', e);
+    }
+  }
   await supabase.auth.signOut();
-  await db.disconnectAndClear(); // the next user on this phone must not see this user's data
+  // The next user on this phone must not see this user's data. clearLocal: false keeps this
+  // phone's preferences (theme, haptics, lock, reminder time); what is the user's own goes below.
+  await db.disconnectAndClear(clearLocal: false);
+  await db.writeTransaction((tx) async {
+    await tx.execute('DELETE FROM inbox');
+    await tx.execute('DELETE FROM upload_errors');
+    await tx.execute('DELETE FROM prefs WHERE id = ?', [diagnosisAdviceKey]);
+  });
   return true;
 }
 

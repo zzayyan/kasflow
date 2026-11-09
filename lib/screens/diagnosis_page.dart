@@ -213,7 +213,7 @@ class Advice {
   final DateTime madeAt;
 }
 
-const _adviceKey = 'diagnosis_advice'; // {payload, advice, at} as JSON, on this phone only
+// The pref at diagnosisAdviceKey holds {payload, advice, at} as JSON, on this phone only.
 
 Advice? _parseAdvice(Object? a, DateTime madeAt) {
   if (a is! Map || a['summary'] is! String || a['steps'] is! List) return null;
@@ -226,7 +226,7 @@ Advice? _parseAdvice(Object? a, DateTime madeAt) {
 
 /// The stored advice and the payload it was made from, when it was made for [view]'s month.
 Future<({Advice advice, bool stale})?> cachedAdvice(DiagnosisView view) async {
-  final raw = await getPref(_adviceKey);
+  final raw = await getPref(diagnosisAdviceKey);
   if (raw == null) return null;
   try {
     final stored = jsonDecode(raw) as Map<String, dynamic>;
@@ -250,7 +250,7 @@ Future<Advice?> fetchAdvice(DiagnosisView view) async {
     final advice = _parseAdvice(response.data, at);
     if (advice == null) return null;
     await setPref(
-      _adviceKey,
+      diagnosisAdviceKey,
       jsonEncode({'payload': view.payload, 'advice': response.data, 'at': at.toUtc().toIso8601String()}),
     );
     return advice;

@@ -288,8 +288,13 @@ class _Header extends StatelessWidget {
         IconButton(
           tooltip: 'Profil',
           onPressed: onAvatar,
-          style: IconButton.styleFrom(backgroundColor: c.hero, fixedSize: const Size.square(46)),
-          icon: Text(name[0], style: AppText.heading.copyWith(fontSize: 18, color: c.onHero)),
+          style: IconButton.styleFrom(fixedSize: const Size.square(46), padding: EdgeInsets.zero),
+          icon: UserAvatar(
+            size: 46,
+            initial: name[0],
+            initialStyle: AppText.heading.copyWith(fontSize: 18, color: c.onHero),
+            url: userAvatarUrl(),
+          ),
         ),
         const SizedBox(width: 10),
         Expanded(

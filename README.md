@@ -18,6 +18,13 @@ adb install -r build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 
 The release build is signed with the debug key, so it installs over a debug build and keeps the data.
 
+## Google sign-in (optional)
+
+"Lanjut dengan Google" appears only when `GOOGLE_WEB_CLIENT_ID` is set in `.env`. Setup is outside the repo:
+
+1. Google Cloud Console: create a **Web** OAuth client (its id goes in `.env`) and an **Android** client with package `com.cashflowapp.cashflow_app` and the SHA-1 of the debug keystore (`keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android`). Release builds use the same key, so one Android client covers both; another machine has another SHA-1.
+2. Supabase Dashboard, Authentication, Providers, Google: enable it with the Web client id and secret. Turn on "Skip nonce check" if sign-in fails with a nonce error. Keep automatic identity linking on, so a Google account with the same verified email as an email account resolves to the same user.
+
 ## Layout
 
 - `lib/` app code: `db.dart` (PowerSync + Supabase connector), `schema.dart` (on-device tables), `money.dart` (amount parsing), `theme.dart` (design tokens), `ui.dart` (shared widgets), `screens/` (one file per screen)

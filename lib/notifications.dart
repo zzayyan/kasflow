@@ -158,7 +158,9 @@ Future<int> _readQueue() async {
   );
   if (queued.isEmpty) return 0;
   final meta = supabase.auth.currentUser?.userMetadata;
-  final names = '${meta?['name'] ?? meta?['full_name'] ?? ''}'.split(RegExp(r'\s+')).where((w) => w.length >= 3);
+  final names = '${meta?['nickname'] ?? ''} ${meta?['name'] ?? meta?['full_name'] ?? ''}'
+      .split(RegExp(r'\s+'))
+      .where((w) => w.length >= 3);
   var ready = 0;
   for (final n in queued) {
     final original = [n['title'], n['text']].whereType<String>().join('\n');

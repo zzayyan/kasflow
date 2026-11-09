@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../db.dart';
@@ -71,6 +72,28 @@ class _LoginPageState extends State<LoginPage> {
       }
     } on AuthException catch (e) {
       if (mounted) showMessage(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _google() async {
+    haptic(Haptic.click);
+    final nav = Navigator.of(context);
+    setState(() => _busy = true);
+    try {
+      final user = await signInWithGoogle();
+      if (user == null) return; // picker canceled
+      // Google can resolve to an existing user (same verified email). Their accounts sync down from
+      // the server, so the intro's starter accounts only go to a user created just now.
+      if (DateTime.now().difference(DateTime.parse(user.createdAt)) < const Duration(minutes: 1)) {
+        await createStarterAccounts(widget.starterAccounts);
+      }
+      nav.popUntil((route) => route.isFirst);
+    } on AuthException catch (e) {
+      if (mounted) showMessage(context, e.message);
+    } on GoogleSignInException {
+      if (mounted) showMessage(context, 'Tidak bisa masuk dengan Google. Coba lagi.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -216,6 +239,28 @@ class _LoginPageState extends State<LoginPage> {
                             )
                           : Text(_signUp ? 'Daftar' : 'Masuk'),
                     ),
+                    if (googleWebClientId.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(child: Divider(color: c.divider)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text('atau', style: AppText.caption.copyWith(color: c.inkMuted)),
+                          ),
+                          Expanded(child: Divider(color: c.divider)),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      OutlinedButton(
+                        onPressed: _busy ? null : _google,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(58),
+                          textStyle: AppText.button.copyWith(fontSize: 17),
+                        ),
+                        child: const Text('Lanjut dengan Google'),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Text(
                       'Data disimpan di HP dan disinkronkan ke akunmu, jadi tetap aman kalau ganti HP.',

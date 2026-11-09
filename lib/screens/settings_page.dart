@@ -379,12 +379,11 @@ class _ProfileSheetState extends State<_ProfileSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Center(
-              child: Container(
-                width: 72,
-                height: 72,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(color: c.hero, shape: BoxShape.circle),
-                child: Text(name[0], style: AppText.title.copyWith(fontSize: 28, color: c.onHero)),
+              child: UserAvatar(
+                size: 72,
+                initial: name[0],
+                initialStyle: AppText.title.copyWith(fontSize: 28, color: c.onHero),
+                url: userAvatarUrl(),
               ),
             ),
             const SizedBox(height: 12),
