@@ -67,7 +67,7 @@ class _Progress extends StatelessWidget {
           if (i > 1) const SizedBox(width: 6),
           Expanded(
             child: AnimatedContainer(
-              duration: _pageDuration,
+              duration: motion(context, _pageDuration),
               height: 4,
               decoration: BoxDecoration(color: i <= step ? on : off, borderRadius: BorderRadius.circular(2)),
             ),
@@ -121,7 +121,11 @@ class _WelcomePageState extends State<WelcomePage> with WidgetsBindingObserver {
     if (mounted && enabled != _notifications) setState(() => _notifications = enabled);
   }
 
-  void _go(int page) => _pages.animateToPage(page, duration: _pageDuration, curve: Curves.easeOutCubic);
+  void _go(int page) => _pages.animateToPage(
+    page,
+    duration: motion(context, _pageDuration),
+    curve: Curves.easeOutCubic,
+  );
 
   void _login({required bool signUp, List<StarterAccount> accounts = const []}) => Navigator.push(
     context,

@@ -708,7 +708,11 @@ class PillSwitch<T> extends StatelessWidget {
                           fontWeight: value == option ? FontWeight.w500 : FontWeight.w400,
                           color: value == option ? c.onPrimary : c.ink,
                         ),
-                        child: Text(label),
+                        // One line that shrinks, never a word broken across two (large system font).
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(label, maxLines: 1, softWrap: false),
+                        ),
                       ),
                     ),
                   ),
@@ -918,15 +922,17 @@ class _SelectableBarsState extends State<SelectableBars> {
           children: [
             for (var i = 0; i < labels.length; i++)
               Expanded(
-                child: Text(
-                  labels[i],
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.fade,
-                  softWrap: false,
-                  style: AppText.caption.copyWith(
-                    color: i == selected ? c.ink : c.inkMuted,
-                    fontWeight: i == selected ? FontWeight.w600 : null,
+                // Shrinks with a large system font instead of cutting "Hari ini" short.
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    labels[i],
+                    maxLines: 1,
+                    softWrap: false,
+                    style: AppText.caption.copyWith(
+                      color: i == selected ? c.ink : c.inkMuted,
+                      fontWeight: i == selected ? FontWeight.w600 : null,
+                    ),
                   ),
                 ),
               ),

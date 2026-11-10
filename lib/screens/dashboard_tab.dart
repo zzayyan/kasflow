@@ -401,7 +401,8 @@ class _SyncButtonState extends State<_SyncButton> with SingleTickerProviderState
             last == null ? 'Semua data tersinkron' : 'Semua data tersinkron · ${DateFormat('HH.mm').format(last)}',
           );
     Widget glyph = Icon(icon, size: 22, color: color);
-    if (key == 'busy') {
+    // Still while Android's "remove animations" is on: the tooltip and the snackbar say it is busy.
+    if (key == 'busy' && !MediaQuery.disableAnimationsOf(context)) {
       glyph = RotationTransition(turns: _spin, child: glyph); // clockwise, the way the arrows point
     }
     return IconButton(
@@ -419,7 +420,7 @@ class _SyncButtonState extends State<_SyncButton> with SingleTickerProviderState
         label: Text(_pending > 99 ? '99+' : '$_pending'),
         // A short cross-fade, so quick status flips read as one change instead of a flicker.
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
+          duration: motion(context, const Duration(milliseconds: 250)),
           child: KeyedSubtree(key: ValueKey(key), child: glyph),
         ),
       ),

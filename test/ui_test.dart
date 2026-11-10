@@ -11,10 +11,14 @@ void main() {
 
   group('AmountInputFormatter', () {
     const f = AmountInputFormatter();
-    TextEditingValue type(String old, String text, int cursor) => f.formatEditUpdate(
-      TextEditingValue(text: old),
-      TextEditingValue(text: text, selection: TextSelection.collapsed(offset: cursor)),
-    );
+    TextEditingValue type(String old, String text, int cursor) =>
+        f.formatEditUpdate(
+          TextEditingValue(text: old),
+          TextEditingValue(
+            text: text,
+            selection: TextSelection.collapsed(offset: cursor),
+          ),
+        );
 
     test('groups thousands as typed, cursor at the end', () {
       expect(type('500', '5000', 4).text, '5.000');
@@ -49,13 +53,19 @@ void main() {
       MaterialApp(
         theme: buildAppTheme(Brightness.light),
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(accessibleNavigation: screenReader),
+          data: MediaQuery.of(context)
+              .copyWith(accessibleNavigation: screenReader),
           child: child!,
         ),
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
-              onPressed: () => showDone(context, 'Tersimpan', 'Makan · Rp 25.000', onUndo: () {}),
+              onPressed: () => showDone(
+                context,
+                'Tersimpan',
+                'Makan · Rp 25.000',
+                onUndo: () {},
+              ),
               child: const Text('simpan'),
             ),
           ),
@@ -66,7 +76,9 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('"Tersimpan" closes itself once its ring runs out', (tester) async {
+  testWidgets('"Tersimpan" closes itself once its ring runs out', (
+    tester,
+  ) async {
     await showBar(tester);
     await tester.pump(undoTime - const Duration(milliseconds: 500));
     expect(find.text('Batalkan'), findsOneWidget);
@@ -76,7 +88,9 @@ void main() {
     expect(find.text('Batalkan'), findsNothing);
   });
 
-  testWidgets('with a screen reader, it waits for the user and shows no ring', (tester) async {
+  testWidgets('with a screen reader, it waits for the user and shows no ring', (
+    tester,
+  ) async {
     await showBar(tester, screenReader: true);
     await tester.pump(undoTime * 3);
     expect(find.text('Batalkan'), findsOneWidget);
@@ -90,72 +104,159 @@ void main() {
     expect(percentOf(1, 0), '0%');
   });
 
-  testWidgets('a finger sliding across the bars previews each and selects where it lifts', (tester) async {
-    final picked = <int>[];
-    final ticks = <String>[];
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(const MethodChannel('cashflow/notifications'), (call) async {
-      if (call.method == 'haptic') ticks.add(call.arguments as String);
-      return null;
-    });
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(Brightness.light),
-        home: Scaffold(
-          body: SizedBox(
-            width: 300,
-            child: SelectableBars(
-              values: const [1, 2, 3, 4, 5, 6],
-              labels: const ['a', 'b', 'c', 'd', 'e', 'f'],
-              readouts: const ['a', 'b', 'c', 'd', 'e', 'f'],
-              selected: 5,
-              onSelect: picked.add,
-              valueText: (v) => '$v',
-            ),
-          ),
-        ),
-      ),
-    );
-    final plot = tester.getRect(find.byType(GestureDetector).first);
-    final gesture = await tester.startGesture(plot.centerRight - const Offset(5, 0));
-    await gesture.moveBy(const Offset(-120, 0)); // past the drag slop, onto the middle columns
-    await tester.pump();
-    await gesture.moveBy(const Offset(-130, 0)); // to the first column
-    await tester.pump();
-    expect(picked, isEmpty); // a preview, not yet a pick
-    await gesture.up();
-    await tester.pump();
-    expect(picked, [0]);
-    expect(ticks, isNotEmpty);
-    expect(ticks.toSet(), {'tick'});
-  });
-
-  for (final brightness in Brightness.values) {
-    testWidgets('pickMonth lists 24 months, newest first, and returns the one tapped ($brightness)', (tester) async {
-      DateTime? picked;
+  testWidgets(
+    'a finger sliding across the bars previews each and selects where it lifts',
+    (tester) async {
+      final picked = <int>[];
+      final ticks = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('cashflow/notifications'),
+        (call) async {
+          if (call.method == 'haptic') ticks.add(call.arguments as String);
+          return null;
+        },
+      );
       await tester.pumpWidget(
         MaterialApp(
-          theme: buildAppTheme(brightness),
-          home: Builder(
-            builder: (context) => TextButton(
-              onPressed: () async => picked = await pickMonth(context, null),
-              child: const Text('buka'),
+          theme: buildAppTheme(Brightness.light),
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              child: SelectableBars(
+                values: const [1, 2, 3, 4, 5, 6],
+                labels: const ['a', 'b', 'c', 'd', 'e', 'f'],
+                readouts: const ['a', 'b', 'c', 'd', 'e', 'f'],
+                selected: 5,
+                onSelect: picked.add,
+                valueText: (v) => '$v',
+              ),
             ),
           ),
         ),
       );
-      await tester.tap(find.text('buka'));
-      await tester.pumpAndSettle();
-      expect(find.text('Pilih bulan'), findsOneWidget);
-      final now = DateTime.now();
-      final names = [for (var i = 0; i < 24; i++) DateFormat('MMMM yyyy', 'id_ID').format(DateTime(now.year, now.month - i))];
-      final tiles = tester.widgetList<ListTile>(find.byType(ListTile)).toList();
-      expect(tiles.length, lessThanOrEqualTo(24)); // the list scrolls, so only the first rows are built
-      for (var i = 0; i < tiles.length; i++) {
-        expect((tiles[i].title! as Text).data, names[i]);
-      }
-      await tester.tap(find.text(names[1]));
-      await tester.pumpAndSettle();
-      expect(picked, DateTime(now.year, now.month - 1));
-    });
+      final plot = tester.getRect(find.byType(GestureDetector).first);
+      final gesture = await tester.startGesture(
+        plot.centerRight - const Offset(5, 0),
+      );
+      await gesture.moveBy(
+        const Offset(-120, 0),
+      ); // past the drag slop, onto the middle columns
+      await tester.pump();
+      await gesture.moveBy(const Offset(-130, 0)); // to the first column
+      await tester.pump();
+      expect(picked, isEmpty); // a preview, not yet a pick
+      await gesture.up();
+      await tester.pump();
+      expect(picked, [0]);
+      expect(ticks, isNotEmpty);
+      expect(ticks.toSet(), {'tick'});
+    },
+  );
+
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'pickMonth lists 24 months, newest first, and returns the one tapped ($brightness)',
+      (tester) async {
+        DateTime? picked;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(brightness),
+            home: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async => picked = await pickMonth(context, null),
+                child: const Text('buka'),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('buka'));
+        await tester.pumpAndSettle();
+        expect(find.text('Pilih bulan'), findsOneWidget);
+        final now = DateTime.now();
+        final names = [
+          for (var i = 0; i < 24; i++)
+            DateFormat(
+              'MMMM yyyy',
+              'id_ID',
+            ).format(DateTime(now.year, now.month - i)),
+        ];
+        final tiles = tester
+            .widgetList<ListTile>(find.byType(ListTile))
+            .toList();
+        expect(
+          tiles.length,
+          lessThanOrEqualTo(24),
+        ); // the list scrolls, so only the first rows are built
+        for (var i = 0; i < tiles.length; i++) {
+          expect((tiles[i].title! as Text).data, names[i]);
+        }
+        await tester.tap(find.text(names[1]));
+        await tester.pumpAndSettle();
+        expect(picked, DateTime(now.year, now.month - 1));
+      },
+    );
   }
+
+  testWidgets(
+    'PillSwitch and the bar labels stay on one line at a large system font',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(Brightness.light),
+          home: MediaQuery(
+            data: const MediaQueryData(
+              size: Size(360, 800),
+              textScaler: TextScaler.linear(1.3),
+            ),
+            child: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: 360, // a phone's width; the test surface is wider
+                  child: Column(
+                    children: [
+                      PillSwitch<String>(
+                        options: const [
+                          ('a', 'Pengeluaran'),
+                          ('b', 'Pemasukan'),
+                          ('c', 'Budget'),
+                        ],
+                        value: 'a',
+                        onChanged: (_) {},
+                      ),
+                      SelectableBars(
+                        values: const [1, 2, 3, 4, 5, 6, 7],
+                        labels: const [
+                          'Rab',
+                          'Kam',
+                          'Jum',
+                          'Sab',
+                          'Min',
+                          'Sen',
+                          'Hari ini',
+                        ],
+                        readouts: const ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+                        selected: 6,
+                        onSelect: (_) {},
+                        valueText: (v) => '$v',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      // A label that wrapped would be two lines tall: one line at 1.3x of the 15 and 12 sp fonts is under 30 dp.
+      for (final label in ['Pengeluaran', 'Pemasukan', 'Hari ini']) {
+        expect(
+          tester.getSize(find.text(label)).height,
+          lessThan(30),
+          reason: label,
+        );
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
