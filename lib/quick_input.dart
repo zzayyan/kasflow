@@ -101,6 +101,22 @@ const _accountAliases = {
 };
 final _suffixOrGrouping = RegExp(r'(rb|ribu|k|jt|juta)$|\d[.,]\d', caseSensitive: false);
 
+/// Why the plain rules may have misread [input], worded as a nudge to ask AI. Null when [entry] is
+/// missing (no amount yet) or the reading looks right. Never calls Gemini: the user decides that.
+String? quickInputHint(String input, QuickEntry? entry) {
+  if (entry == null) return null;
+  if (RegExp(r'\b(transfer|trf|tf|kirim|pindah)\b', caseSensitive: false).hasMatch(input)) {
+    return 'Sepertinya transfer. Tekan AI untuk mengisi akunnya.';
+  }
+  final amounts = _joinSuffixes(input).split(RegExp(r'\s+')).where((t) {
+    final word = t.replaceFirst(RegExp(r'[,;.]$'), '');
+    return parseAmount(word) != null && (_suffixOrGrouping.hasMatch(word) || RegExp(r'^\d{4,}$').hasMatch(word));
+  }).length;
+  if (amounts > 1) return 'Ada $amounts nominal. Tekan AI untuk membaca semuanya.';
+  if (entry.categoryId == null) return 'Kategori belum dikenali. Tekan AI untuk menebaknya.';
+  return null;
+}
+
 /// Returns null when the text has no amount.
 /// [accounts] rows need `id`, `name`, `provider`; [categories] rows need `id`, `type`, `keywords`.
 QuickEntry? parseQuickInput(

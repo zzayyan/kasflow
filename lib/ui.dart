@@ -1014,3 +1014,51 @@ String percentOf(int part, int whole) {
   final p = (part * 100 / whole).round();
   return p == 0 && part != 0 ? '<1%' : '$p%';
 }
+
+
+/// The button inside both quick-entry fields: a camera while empty, [sendIcon] once there is text,
+/// and a spinner while AI reads.
+class QuickFieldAction extends StatelessWidget {
+  const QuickFieldAction({
+    super.key,
+    required this.busy,
+    required this.hasText,
+    required this.sendTooltip,
+    this.sendIcon = Icons.arrow_forward,
+    required this.onSend,
+    required this.onCamera,
+  });
+
+  final bool busy;
+  final bool hasText;
+  final String sendTooltip;
+  final IconData sendIcon;
+  final VoidCallback onSend;
+  final VoidCallback onCamera;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    if (!busy && !hasText) {
+      return IconButton(
+        tooltip: 'Foto struk',
+        onPressed: onCamera,
+        style: IconButton.styleFrom(fixedSize: const Size.square(48)),
+        icon: Icon(Icons.photo_camera_outlined, color: c.primary),
+      );
+    }
+    return IconButton.filled(
+      tooltip: busy ? 'AI sedang membaca' : sendTooltip,
+      onPressed: busy ? null : onSend,
+      style: IconButton.styleFrom(
+        backgroundColor: c.primary,
+        foregroundColor: c.onPrimary,
+        disabledBackgroundColor: c.primary,
+        fixedSize: const Size.square(48),
+      ),
+      icon: busy
+          ? SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2, color: c.onPrimary))
+          : Icon(sendIcon, size: 20),
+    );
+  }
+}

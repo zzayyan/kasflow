@@ -91,7 +91,8 @@ class Prefill {
   final List<ReceiptItem> items; // a scanned receipt's lines
 }
 
-Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
+/// With [scanReceipt] the form opens straight on the receipt photo choice.
+Future<void> showRecordForm(BuildContext context, {Prefill? prefill, bool scanReceipt = false}) async {
   // Archived accounts and categories stay selectable when the record being edited uses them.
   final accounts = await db.getAll(
     '''
@@ -128,6 +129,7 @@ Future<void> showRecordForm(BuildContext context, {Prefill? prefill}) async {
         labels: labels,
         notes: [for (final n in notes) (n['note'] as String).trim()],
         prefill: prefill,
+        scanReceipt: scanReceipt,
       ),
     ),
   );
@@ -141,7 +143,10 @@ class RecordForm extends StatefulWidget {
     required this.labels,
     this.notes = const [],
     this.prefill,
+    this.scanReceipt = false,
   });
+
+  final bool scanReceipt;
 
   final List<Map<String, dynamic>> accounts;
   final List<Map<String, dynamic>> categories;
@@ -174,6 +179,7 @@ class _RecordFormState extends State<RecordForm> {
   @override
   void initState() {
     super.initState();
+    if (widget.scanReceipt) WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_scanReceipt()));
     final p = widget.prefill;
     if (p == null) return;
     if (p.amount != null) _amount.text = NumberFormat.decimalPattern('id_ID').format(p.amount! / 100);
@@ -205,6 +211,7 @@ class _RecordFormState extends State<RecordForm> {
   bool _categoryPicked = false;
 
   void _onNoteChanged(String note) {
+    _touched.add('note');
     if (_categoryPicked || _type == 'transfer') return;
     final guess = guessCategoryId(note, _type, widget.categories);
     if (guess != _categoryId) setState(() => _categoryId = guess);
@@ -213,20 +220,88 @@ class _RecordFormState extends State<RecordForm> {
   // Only for a fresh record that nothing filled in yet (not an edit, a notification or a bill).
   late final bool _showQuick = !_editing && widget.prefill?.amount == null;
 
-  /// The quick field fills the form as the user types: "bakso 25rb pakai gopay".
+  final _touched = <String>{}; // fields the user changed by hand: quick input never writes over them
+  ({String type, String accountId, DateTime date})? _blank; // what quick input replaced; null until it fills
+  List<QuickEntry> _entries = const []; // what Gemini read from the line
+  bool _byAi = false; // the fields hold Gemini's reading
+  bool _asking = false; // Gemini is reading the line
+  String? _hint; // why the plain rules may be wrong; the user decides whether to ask AI
+
+  void _fill(QuickEntry e) {
+    _blank ??= (type: _type, accountId: _accountId, date: _date);
+    if (!_touched.contains('amount')) _amount.text = NumberFormat.decimalPattern('id_ID').format(e.amount / 100);
+    if (!_touched.contains('type')) _type = e.type;
+    if (!_touched.contains('note')) _note.text = e.note;
+    if (!_touched.contains('date')) _date = e.date;
+    if (!_touched.contains('account') && e.accountId != null) _accountId = e.accountId!;
+    if (!_touched.contains('target') && e.transferAccountId != null) _targetId = e.transferAccountId;
+    if (!_categoryPicked) {
+      _categoryId = _type == 'transfer'
+          ? null
+          : e.type == _type
+          ? e.categoryId
+          : guessCategoryId(_note.text, _type, widget.categories);
+    }
+    _quickLabels = e.labels;
+  }
+
+  /// The line no longer holds an amount: takes back what it filled, and leaves what the user set.
+  void _clearFilled() {
+    final blank = _blank;
+    if (blank == null) return;
+    _blank = null;
+    if (!_touched.contains('amount')) _amount.clear();
+    if (!_touched.contains('type')) _type = blank.type;
+    if (!_touched.contains('note')) _note.clear();
+    if (!_touched.contains('date')) _date = blank.date;
+    if (!_touched.contains('account')) _accountId = blank.accountId;
+    if (!_touched.contains('target')) _targetId = null;
+    if (!_categoryPicked) _categoryId = null;
+    _quickLabels = const [];
+  }
+
+  /// The quick field fills the form from the plain rules as the user types: "bakso 25rb pakai gopay".
   void _onQuickChanged(String text) {
     final e = parseQuickInput(text, accounts: widget.accounts, categories: widget.categories);
-    if (e == null) return;
     setState(() {
-      _amount.text = NumberFormat.decimalPattern('id_ID').format(e.amount / 100);
-      _type = e.type;
-      _note.text = e.note;
-      _date = e.date;
-      if (e.accountId case final id?) _accountId = id;
-      _categoryId = e.categoryId;
-      _categoryPicked = false;
-      _quickLabels = e.labels;
+      _entries = const [];
+      _byAi = false;
+      _hint = quickInputHint(text, e);
+      if (e == null) {
+        _clearFilled();
+      } else {
+        _fill(e);
+      }
     });
+  }
+
+  /// The arrow or the keyboard's send: Gemini reads what the plain rules can't, such as a transfer.
+  Future<void> _askAi() async {
+    final input = _quick.text.trim();
+    if (input.isEmpty || _asking || _reading) return;
+    setState(() => _asking = true);
+    try {
+      final entries = await _askGemini(input, widget.accounts, widget.categories);
+      if (!mounted || _quick.text.trim() != input) return; // typing on has replaced this line
+      if (entries == null) return showMessage(context, 'AI tidak terjangkau. Kolom tetap terisi dari aturan dasar.');
+      if (entries.isEmpty) return showMessage(context, 'Nominal tidak ditemukan. Contoh: bakso 25rb pakai gopay');
+      setState(() {
+        _fill(entries.first);
+        _entries = entries;
+        _byAi = true;
+        _hint = null;
+      });
+      FocusManager.instance.primaryFocus?.unfocus(); // show the filled form, not the keyboard
+    } finally {
+      if (mounted) setState(() => _asking = false);
+    }
+  }
+
+  /// A line with several transactions: saves them all, the way Catat cepat does.
+  Future<void> _saveEntries() async {
+    final root = Navigator.of(context).context; // outlives this screen, for the "Tersimpan" bar
+    Navigator.pop(context);
+    await saveQuickEntries(root, _entries, widget.accounts, widget.categories);
   }
 
   bool _reading = false; // Gemini is reading a receipt photo
@@ -289,6 +364,7 @@ class _RecordFormState extends State<RecordForm> {
         _categoryPicked = false;
         _items = itemsFromReceipt(r['items']);
         _allItems = false;
+        _byAi = true;
       });
       FocusManager.instance.primaryFocus?.unfocus(); // show the filled form, not the keyboard
     } finally {
@@ -302,6 +378,7 @@ class _RecordFormState extends State<RecordForm> {
     setState(() {
       _categoryId = id;
       _categoryPicked = true;
+      _hint = null;
     });
   }
 
@@ -318,12 +395,14 @@ class _RecordFormState extends State<RecordForm> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (day == null || !mounted) return;
+    _touched.add('date');
     setState(() => _date = DateTime(day.year, day.month, day.day, _date.hour, _date.minute));
   }
 
   Future<void> _pickTime() async {
     final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_date));
     if (t == null || !mounted) return;
+    _touched.add('date');
     setState(() => _date = DateTime(_date.year, _date.month, _date.day, t.hour, t.minute));
   }
 
@@ -513,32 +592,36 @@ class _RecordFormState extends State<RecordForm> {
               Padding(
                 padding: const EdgeInsets.only(left: 4, bottom: 6),
                 child: Text(
-                  'Ketik cepat, kolom di bawah terisi sendiri',
+                  _reading || _asking
+                      ? 'AI sedang membaca…'
+                      : _byAi
+                      ? 'Terisi oleh AI, cek sebelum simpan'
+                      : 'Isi otomatis. Tekan icon AI kalau hasilnya kurang tepat',
                   style: AppText.caption.copyWith(color: c.inkMuted),
                 ),
               ),
               TextField(
                 controller: _quick,
-                autofocus: true,
+                autofocus: !widget.scanReceipt,
+                textInputAction: TextInputAction.send,
                 onChanged: _onQuickChanged,
+                onSubmitted: (_) => unawaited(_askAi()),
                 style: AppText.body,
                 decoration: InputDecoration(
                   hintText: 'bakso 25rb pakai gopay',
                   fillColor: c.primarySoft,
                   prefixIcon: Icon(Icons.bolt, size: 20, color: c.primary),
-                  suffixIcon: _reading
-                      ? Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: SizedBox.square(
-                            dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: c.primary),
-                          ),
-                        )
-                      : IconButton(
-                          tooltip: 'Foto struk',
-                          onPressed: _scanReceipt,
-                          icon: Icon(Icons.photo_camera_outlined, color: c.primary),
-                        ),
+                  suffixIcon: Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: QuickFieldAction(
+                      busy: _reading || _asking,
+                      hasText: _quick.text.trim().isNotEmpty,
+                      sendTooltip: 'Baca dengan AI',
+                      sendIcon: Icons.auto_awesome,
+                      onSend: _askAi,
+                      onCamera: _scanReceipt,
+                    ),
+                  ),
                   contentPadding: const EdgeInsets.symmetric(vertical: 16),
                   border: const OutlineInputBorder(
                     borderRadius: BorderRadius.all(Radius.circular(26)),
@@ -554,12 +637,54 @@ class _RecordFormState extends State<RecordForm> {
                   ),
                 ),
               ),
+              if (_hint case final hint? when !_asking && !_reading) ...[
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Text(hint, style: AppText.caption.copyWith(color: c.primary, fontWeight: FontWeight.w500)),
+                ),
+              ],
+              if (_entries.length > 1) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+                  decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(AppRadius.tile)),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Ada ${_entries.length} transaksi di kalimat ini',
+                              style: AppText.bodyStrong.copyWith(fontSize: 14),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Di sini hanya yang pertama terisi',
+                              style: AppText.caption.copyWith(color: c.inkMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: AppSpace.gap),
+                      FilledButton(
+                        onPressed: _saveEntries,
+                        style: FilledButton.styleFrom(minimumSize: const Size(64, 48)),
+                        child: Text(_entries.length == 2 ? 'Catat keduanya' : 'Catat semua'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 18),
             ],
             PillSwitch(
               options: const [('expense', 'Keluar'), ('income', 'Masuk'), ('transfer', 'Transfer')],
               value: _type,
               onChanged: (type) => setState(() {
+                _touched.add('type');
+                _hint = null;
                 _type = type;
                 _categoryPicked = false;
                 _categoryId = type == 'transfer' ? null : guessCategoryId(_note.text, type, widget.categories);
@@ -594,6 +719,7 @@ class _RecordFormState extends State<RecordForm> {
                               controller: _amount,
                               focusNode: _amountFocus,
                               autofocus: !_showQuick && !_editing && _amount.text.isEmpty,
+                              onChanged: (_) => _touched.add('amount'),
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
                               inputFormatters: const [AmountInputFormatter()],
                               style: AppText.amountXl.copyWith(color: c.ink),
@@ -706,6 +832,7 @@ class _RecordFormState extends State<RecordForm> {
                     final id = await chooseOne(context, transfer ? 'Dari akun' : 'Akun', _accountOptions(), _accountId);
                     if (id != null) {
                       setState(() {
+                        _touched.add('account');
                         _accountId = id;
                         if (_targetId == id) _targetId = null;
                       });
@@ -721,7 +848,10 @@ class _RecordFormState extends State<RecordForm> {
                     trailing: target == null ? null : Text(formatAmount(target['balance'] as int)),
                     onTap: () async {
                       final id = await chooseOne(context, 'Ke akun', _accountOptions(except: _accountId), _targetId);
-                      if (id != null) setState(() => _targetId = id);
+                      if (id != null) {
+                        _touched.add('target');
+                        setState(() => _targetId = id);
+                      }
                     },
                   ),
                 // ponytail: new transfers only; editing a transfer leaves its fee record alone.
@@ -970,4 +1100,140 @@ class _ItemSheetState extends State<_ItemSheet> {
       ),
     ],
   );
+}
+
+// ---------------------------------------------------------------- quick input
+
+/// Saves one line of quick input ("bakso 25rb pakai dana", "makan 25rb parkir 5rb"), which may
+/// hold several transactions. [onParsed] runs once the line is understood. With [review], and for
+/// an entry with no category, a transfer, or an amount Gemini may have misread, the record form
+/// opens instead of saving.
+Future<void> submitQuickInput(
+  BuildContext context,
+  String text, {
+  VoidCallback? onParsed,
+  bool review = false,
+}) async {
+  final input = text.trim();
+  if (input.isEmpty) return;
+  final accounts = await db.getAll('SELECT id, name, provider, currency FROM accounts WHERE archived = 0');
+  final categories = await db.getAll('SELECT id, name, type, keywords FROM categories WHERE archived = 0');
+  if (!context.mounted) return;
+  if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
+  final entries =
+      await _askGemini(input, accounts, categories) ??
+      [?parseQuickInput(input, accounts: accounts, categories: categories)];
+  if (!context.mounted) return;
+  if (entries.isEmpty) return showMessage(context, 'Nominal tidak ditemukan. Contoh: bakso 25rb pakai gopay');
+  onParsed?.call();
+  await saveQuickEntries(context, entries, accounts, categories, review: review);
+}
+
+/// Saves transactions read from one line. An entry that needs a check opens the record form.
+Future<void> saveQuickEntries(
+  BuildContext context,
+  List<QuickEntry> entries,
+  List<Map<String, dynamic>> accounts,
+  List<Map<String, dynamic>> categories, {
+  bool review = false,
+}) async {
+  final defaultAccountId = await _lastAccountId(accounts);
+  final labelIds = await resolveLabelIds(entries.first.labels); // "#liburan" creates the label if needed
+
+  final saved = <({String id, QuickEntry entry, Map<String, dynamic> account})>[];
+  final toCheck = <QuickEntry>[];
+  for (final e in entries) {
+    if (review || !e.sure || e.type == 'transfer' || e.categoryId == null) {
+      toCheck.add(e);
+      continue;
+    }
+    final account = accounts.firstWhere((a) => a['id'] == (e.accountId ?? defaultAccountId));
+    final id = await insertRecord(
+      accountId: account['id'] as String,
+      type: e.type,
+      amount: e.amount,
+      currency: account['currency'] as String,
+      occurredAt: e.date,
+      categoryId: e.categoryId,
+      note: e.note.isEmpty ? null : e.note,
+      source: 'nlp',
+      labelIds: labelIds,
+    );
+    saved.add((id: id, entry: e, account: account));
+  }
+  if (!context.mounted) return;
+  if (saved.isNotEmpty) {
+    final first = saved.first;
+    showDone(
+      context,
+      'Tersimpan',
+      saved.length == 1
+          ? '${categories.firstWhere((c) => c['id'] == first.entry.categoryId)['name']} · '
+                '${formatAmount(first.entry.amount)} · ${first.account['name']}'
+          : '${saved.length} transaksi · ${formatAmount(saved.fold(0, (sum, s) => sum + s.entry.amount))}',
+      onUndo: () => db.writeTransaction((tx) async {
+        for (final s in saved) {
+          await tx.execute('DELETE FROM records WHERE id = ?', [s.id]);
+        }
+      }),
+    );
+  }
+  // Unknown words: let the user pick, which also teaches the keyword for next time.
+  for (final e in toCheck) {
+    if (!context.mounted) return;
+    await showRecordForm(
+      context,
+      prefill: Prefill(
+        amount: e.amount,
+        type: e.type,
+        accountId: e.accountId ?? defaultAccountId,
+        transferAccountId: e.transferAccountId,
+        categoryId: e.categoryId,
+        note: e.note,
+        date: e.date,
+        source: 'nlp',
+        labelIds: labelIds,
+      ),
+    );
+  }
+}
+
+/// Gemini's reading of a quick-input line (supabase/functions/parse-quick-input), or null when it
+/// can't answer in time (offline, over quota), so the offline rules take over.
+Future<List<QuickEntry>?> _askGemini(
+  String input,
+  List<Map<String, dynamic>> accounts,
+  List<Map<String, dynamic>> categories,
+) async {
+  try {
+    final response = await supabase.functions
+        .invoke(
+          'parse-quick-input',
+          body: {
+            'text': input,
+            'today': DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(DateTime.now()),
+            'accounts': [
+              for (final a in accounts) {'id': a['id'], 'name': a['name'], 'provider': a['provider']},
+            ],
+            'categories': [
+              for (final c in categories)
+                {'id': c['id'], 'name': c['name'], 'type': c['type'], 'keywords': c['keywords']},
+            ],
+          },
+        )
+        .timeout(const Duration(seconds: 10)); // a cold start plus Gemini took about 8 s in testing
+    final data = response.data;
+    if (data is Map<String, dynamic>) return entriesFromAnswer(data, input, accounts: accounts, categories: categories);
+    _log.warning('parse-quick-input answered ${data.runtimeType}');
+  } on Exception catch (e) {
+    _log.warning('Gemini unreachable, quick input falls back to the offline rules', e);
+  }
+  return null;
+}
+
+/// No account named: use the one from the latest record, so a daily wallet needs no typing.
+Future<String> _lastAccountId(List<Map<String, dynamic>> accounts) async {
+  final last = await db.getOptional('SELECT account_id FROM records ORDER BY created_at DESC LIMIT 1');
+  return accounts.map((a) => a['id'] as String).where((id) => id == last?['account_id']).firstOrNull ??
+      accounts.first['id'] as String;
 }

@@ -131,4 +131,16 @@ void geminiTests() {
       isEmpty,
     );
   });
+
+  test('quickInputHint names what the plain rules cannot read', () {
+    final known = QuickEntry(amount: 2500000, type: 'expense', note: 'x', date: DateTime(2026), categoryId: 'c1');
+    final unknown = QuickEntry(amount: 2500000, type: 'expense', note: 'x', date: DateTime(2026));
+    expect(quickInputHint('bakso 25rb pakai gopay', known), isNull);
+    expect(quickInputHint('bakso', null), isNull);
+    expect(quickInputHint('beli 2 kopi 30rb', known), isNull);
+    expect(quickInputHint('transfer bca ke dana 50rb', known), contains('transfer'));
+    expect(quickInputHint('makan 25rb parkir 5rb', known), contains('2 nominal'));
+    expect(quickInputHint('makan 25 rb parkir 5000', known), contains('2 nominal'));
+    expect(quickInputHint('ngopi sama klien 40rb', unknown), contains('Kategori'));
+  });
 }

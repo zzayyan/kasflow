@@ -3,25 +3,21 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:logging/logging.dart';
 
 import '../categorize.dart';
 import '../db.dart';
 import '../home_widget.dart';
 import '../money.dart';
 import '../notifications.dart';
-import '../quick_input.dart';
 import '../reports.dart';
 import '../theme.dart';
 import '../ui.dart';
 import 'accounts_tab.dart';
-import 'labels_page.dart';
 import 'record_form.dart';
 
 // A1 record list, B2 quick input and B1 notification inbox: the Transaksi tab, after the
 // "E · Transaksi" and "Geser + snackbar" artboards of the Cashflow UI/UX canvas.
 
-final _log = Logger('quick_input');
 
 class RecordsTab extends StatefulWidget {
   const RecordsTab({super.key});
@@ -508,16 +504,19 @@ class _QuickInputBarState extends State<QuickInputBar> {
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 6),
-          child: Text('Catat cepat', style: AppText.caption.copyWith(color: c.inkMuted)),
+          child: Text(
+            _busy ? 'AI sedang membaca…' : 'Catat cepat · langsung tersimpan',
+            style: AppText.caption.copyWith(color: c.inkMuted),
+          ),
         ),
         TextField(
           controller: _text,
           focusNode: _focus,
           textInputAction: TextInputAction.send,
           onSubmitted: (_) => _submit(),
-          style: AppText.body,
+          style: AppText.body.copyWith(color: _busy ? c.ink.withValues(alpha: 0.55) : null),
           decoration: InputDecoration(
-            hintText: 'bakso 25rb pakai dana',
+            hintText: 'bakso 25rb pakai gopay',
             fillColor: c.surface,
             contentPadding: const EdgeInsets.fromLTRB(20, 18, 6, 18),
             border: pill,
@@ -525,20 +524,16 @@ class _QuickInputBarState extends State<QuickInputBar> {
             focusedBorder: pill.copyWith(borderSide: BorderSide(color: c.primary, width: 1.5)),
             suffixIcon: Padding(
               padding: const EdgeInsets.only(right: 6),
-              child: IconButton.filled(
-                tooltip: 'Simpan catatan cepat',
-                onPressed: _busy ? null : _submit,
-                style: IconButton.styleFrom(
-                  backgroundColor: c.primary,
-                  foregroundColor: c.onPrimary,
-                  disabledBackgroundColor: c.primary,
+              child: ValueListenableBuilder(
+                valueListenable: _text,
+                builder: (context, value, _) => QuickFieldAction(
+                  busy: _busy,
+                  hasText: value.text.trim().isNotEmpty,
+                  sendTooltip: 'Simpan catatan cepat',
+                  sendIcon: Icons.auto_awesome,
+                  onSend: _submit,
+                  onCamera: () => showRecordForm(context, scanReceipt: true),
                 ),
-                icon: _busy
-                    ? SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: c.onPrimary),
-                      )
-                    : const Icon(Icons.arrow_forward, size: 20),
               ),
             ),
           ),
@@ -546,130 +541,6 @@ class _QuickInputBarState extends State<QuickInputBar> {
       ],
     );
   }
-}
-
-/// Saves one line of quick input ("bakso 25rb pakai dana", "makan 25rb parkir 5rb"), which may
-/// hold several transactions. [onParsed] runs once the line is understood. With [review], and for
-/// an entry with no category, a transfer, or an amount Gemini may have misread, the record form
-/// opens instead of saving.
-Future<void> submitQuickInput(
-  BuildContext context,
-  String text, {
-  VoidCallback? onParsed,
-  bool review = false,
-}) async {
-  final input = text.trim();
-  if (input.isEmpty) return;
-  final accounts = await db.getAll('SELECT id, name, provider, currency FROM accounts WHERE archived = 0');
-  final categories = await db.getAll('SELECT id, name, type, keywords FROM categories WHERE archived = 0');
-  if (!context.mounted) return;
-  if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
-  final entries =
-      await _askGemini(input, accounts, categories) ??
-      [?parseQuickInput(input, accounts: accounts, categories: categories)];
-  if (!context.mounted) return;
-  if (entries.isEmpty) return showMessage(context, 'Nominal tidak ditemukan. Contoh: bakso 25rb pakai dana');
-
-  final defaultAccountId = await _lastAccountId(accounts);
-  final labelIds = await resolveLabelIds(entries.first.labels); // "#liburan" creates the label if needed
-  onParsed?.call();
-
-  final saved = <({String id, QuickEntry entry, Map<String, dynamic> account})>[];
-  final toCheck = <QuickEntry>[];
-  for (final e in entries) {
-    if (review || !e.sure || e.type == 'transfer' || e.categoryId == null) {
-      toCheck.add(e);
-      continue;
-    }
-    final account = accounts.firstWhere((a) => a['id'] == (e.accountId ?? defaultAccountId));
-    final id = await insertRecord(
-      accountId: account['id'] as String,
-      type: e.type,
-      amount: e.amount,
-      currency: account['currency'] as String,
-      occurredAt: e.date,
-      categoryId: e.categoryId,
-      note: e.note.isEmpty ? null : e.note,
-      source: 'nlp',
-      labelIds: labelIds,
-    );
-    saved.add((id: id, entry: e, account: account));
-  }
-  if (!context.mounted) return;
-  if (saved.isNotEmpty) {
-    final first = saved.first;
-    showDone(
-      context,
-      'Tersimpan',
-      saved.length == 1
-          ? '${categories.firstWhere((c) => c['id'] == first.entry.categoryId)['name']} · '
-                '${formatAmount(first.entry.amount)} · ${first.account['name']}'
-          : '${saved.length} transaksi · ${formatAmount(saved.fold(0, (sum, s) => sum + s.entry.amount))}',
-      onUndo: () => db.writeTransaction((tx) async {
-        for (final s in saved) {
-          await tx.execute('DELETE FROM records WHERE id = ?', [s.id]);
-        }
-      }),
-    );
-  }
-  // Unknown words: let the user pick, which also teaches the keyword for next time.
-  for (final e in toCheck) {
-    if (!context.mounted) return;
-    await showRecordForm(
-      context,
-      prefill: Prefill(
-        amount: e.amount,
-        type: e.type,
-        accountId: e.accountId ?? defaultAccountId,
-        transferAccountId: e.transferAccountId,
-        categoryId: e.categoryId,
-        note: e.note,
-        date: e.date,
-        source: 'nlp',
-        labelIds: labelIds,
-      ),
-    );
-  }
-}
-
-/// Gemini's reading of a quick-input line (supabase/functions/parse-quick-input), or null when it
-/// can't answer in time (offline, over quota), so the offline rules take over.
-Future<List<QuickEntry>?> _askGemini(
-  String input,
-  List<Map<String, dynamic>> accounts,
-  List<Map<String, dynamic>> categories,
-) async {
-  try {
-    final response = await supabase.functions
-        .invoke(
-          'parse-quick-input',
-          body: {
-            'text': input,
-            'today': DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(DateTime.now()),
-            'accounts': [
-              for (final a in accounts) {'id': a['id'], 'name': a['name'], 'provider': a['provider']},
-            ],
-            'categories': [
-              for (final c in categories)
-                {'id': c['id'], 'name': c['name'], 'type': c['type'], 'keywords': c['keywords']},
-            ],
-          },
-        )
-        .timeout(const Duration(seconds: 10)); // a cold start plus Gemini took about 8 s in testing
-    final data = response.data;
-    if (data is Map<String, dynamic>) return entriesFromAnswer(data, input, accounts: accounts, categories: categories);
-    _log.warning('parse-quick-input answered ${data.runtimeType}');
-  } on Exception catch (e) {
-    _log.warning('Gemini unreachable, quick input falls back to the offline rules', e);
-  }
-  return null;
-}
-
-/// No account named: use the one from the latest record, so a daily wallet needs no typing.
-Future<String> _lastAccountId(List<Map<String, dynamic>> accounts) async {
-  final last = await db.getOptional('SELECT account_id FROM records ORDER BY created_at DESC LIMIT 1');
-  return accounts.map((a) => a['id'] as String).where((id) => id == last?['account_id']).firstOrNull ??
-      accounts.first['id'] as String;
 }
 
 // ---------------------------------------------------------------- notification inbox (B1)

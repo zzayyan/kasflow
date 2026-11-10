@@ -34,6 +34,26 @@ bool _focused(WidgetTester tester, String hint) => tester
 void main() {
   setUpAll(() => initializeDateFormatting('id_ID'));
 
+  testWidgets('quick input fills the amount, takes it back, and never replaces a typed one', (tester) async {
+    await _pump(tester, const RecordForm(accounts: _accounts, categories: _categories, labels: []), Brightness.light);
+    Finder field(String hint) => find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == hint);
+    String amount() => tester.widget<TextField>(field('0')).controller!.text;
+    final quick = field('bakso 25rb pakai gopay');
+
+    await tester.enterText(quick, 'bakso 25rb');
+    await tester.pump();
+    expect(amount(), '25.000');
+
+    await tester.enterText(quick, 'bakso');
+    await tester.pump();
+    expect(amount(), '');
+
+    await tester.enterText(field('0'), '7.000');
+    await tester.enterText(quick, 'bakso 25rb');
+    await tester.pump();
+    expect(amount(), '7.000');
+  });
+
   for (final brightness in Brightness.values) {
     testWidgets('Catat: the amount block and note row focus their field ($brightness)', (tester) async {
       await _pump(tester, const RecordForm(accounts: _accounts, categories: _categories, labels: []), brightness);
