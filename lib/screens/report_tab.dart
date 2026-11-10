@@ -19,6 +19,11 @@ const _trendMonths = 6;
 const _allLabels = ''; // menu value for "every label" (a null value would read as dismissed)
 final _compact = NumberFormat.compact(locale: 'id_ID');
 
+/// Which accounts Laporan counts, as an SQL condition on `a` (accounts) and `r` (records); [n] is
+/// the number of the parameter holding the picked account id, or null. With none picked, accounts
+/// that are not counted ("Tidak dihitung") stay out. Picking one shows it, counted or not.
+String accountScope(int n) => '(a.exclude_from_stats = 0 OR ?$n IS NOT NULL) AND (?$n IS NULL OR r.account_id = ?$n)';
+
 class ReportTab extends StatefulWidget {
   const ReportTab({super.key, this.labelId});
 
@@ -31,33 +36,35 @@ class ReportTab extends StatefulWidget {
 
 class _ReportTabState extends State<ReportTab> {
   // One query covers this month and the previous one; julianday() compares instants, not strings.
-  static const _sql = '''
+  static final _sql = '''
     SELECT r.type, r.category_id, c.name, c.need_level,
       SUM(CASE WHEN julianday(r.occurred_at) >= julianday(?2) THEN r.amount ELSE 0 END) AS cur,
       SUM(CASE WHEN julianday(r.occurred_at) < julianday(?2) THEN r.amount ELSE 0 END) AS prev
     FROM records r
     JOIN accounts a ON a.id = r.account_id
     LEFT JOIN categories c ON c.id = r.category_id
-    WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND r.type IN ('income', 'expense')
+    WHERE r.status = 'confirmed' AND ${accountScope(5)} AND r.type IN ('income', 'expense')
       AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?3)
       AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(r.label_ids) l WHERE l.value = ?4))
     GROUP BY r.type, r.category_id''';
 
   // The trend window's records; they are bucketed into local months in Dart (monthTotals).
-  static const _trendSql = '''
+  static final _trendSql = '''
     SELECT r.type, r.amount, r.occurred_at
     FROM records r JOIN accounts a ON a.id = r.account_id
-    WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND r.type IN ('income', 'expense')
+    WHERE r.status = 'confirmed' AND ${accountScope(4)} AND r.type IN ('income', 'expense')
       AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?2)
       AND (?3 IS NULL OR EXISTS (SELECT 1 FROM json_each(r.label_ids) l WHERE l.value = ?3))''';
 
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   String _view = 'expense'; // 'expense' | 'income' | 'budget'
   late String? _labelId = widget.labelId; // null = all records; else only records with this label
+  String? _accountId; // null = every counted account; else only this one, counted or not
 
   MonthReport? _report;
   List<Map<String, dynamic>> _trendRows = const [];
   List<Map<String, dynamic>> _labels = const [];
+  List<Map<String, dynamic>> _accounts = const []; // `id`, `name`, `exclude_from_stats`
   List<Map<String, dynamic>>? _yearRows; // the last 12 months by category, largest first: who owns the hues
   List<BudgetView>? _budgets;
   final _subs = <StreamSubscription<void>>[];
@@ -85,10 +92,13 @@ class _ReportTabState extends State<ReportTab> {
     final trendStart = DateTime(trendEnd.year, trendEnd.month - (_trendMonths - 1));
     _monthSubs.addAll([
       db
-          .watch(_sql, parameters: [utcIso(previous), utcIso(start), utcIso(end), _labelId])
+          .watch(_sql, parameters: [utcIso(previous), utcIso(start), utcIso(end), _labelId, _accountId])
           .listen((rows) => _set(() => _report = buildMonthReport(rows.toList()))),
       db
-          .watch(_trendSql, parameters: [utcIso(trendStart), utcIso(DateTime(trendEnd.year, trendEnd.month + 1)), _labelId])
+          .watch(
+            _trendSql,
+            parameters: [utcIso(trendStart), utcIso(DateTime(trendEnd.year, trendEnd.month + 1)), _labelId, _accountId],
+          )
           .listen((rows) => _set(() => _trendRows = rows)),
     ]);
   }
@@ -103,6 +113,16 @@ class _ReportTabState extends State<ReportTab> {
           // A deleted label can't stay selected: fall back to all records.
           if (_labelId != null && !rows.any((l) => l['id'] == _labelId)) {
             _labelId = null;
+            _watchMonth();
+          }
+        });
+      }),
+      db.watch('SELECT id, name, exclude_from_stats FROM accounts WHERE archived = 0 ORDER BY name COLLATE NOCASE').listen((rows) {
+        _set(() {
+          _accounts = rows;
+          // An archived or deleted account can't stay selected: fall back to every counted account.
+          if (_accountId != null && !rows.any((a) => a['id'] == _accountId)) {
+            _accountId = null;
             _watchMonth();
           }
         });
@@ -141,6 +161,11 @@ class _ReportTabState extends State<ReportTab> {
 
   void _filter(String? labelId) => setState(() {
     _labelId = labelId;
+    _watchMonth();
+  });
+
+  void _filterAccount(String? accountId) => setState(() {
+    _accountId = accountId;
     _watchMonth();
   });
 
@@ -227,6 +252,9 @@ class _ReportTabState extends State<ReportTab> {
               labels: _labels,
               labelId: _labelId,
               onLabel: _filter,
+              accounts: _accounts,
+              accountId: _accountId,
+              onAccount: _filterAccount,
               month: _month,
               type: income ? 'income' : 'expense',
             ),
@@ -234,7 +262,7 @@ class _ReportTabState extends State<ReportTab> {
               const SizedBox(height: 16),
               _BudgetHint(budgets, onTap: () => setState(() => _view = 'budget')),
             ],
-            if (!income && r.expense > 0) ...[const SizedBox(height: 16), _NeedSplit(r, month: _month, labelId: _labelId)],
+            if (!income && r.expense > 0) ...[const SizedBox(height: 16), _NeedSplit(r, month: _month, labelId: _labelId, accountId: _accountId)],
             const SizedBox(height: 16),
             _Trend(
               title: income ? 'Tren pemasukan' : 'Tren pengeluaran',
@@ -297,12 +325,14 @@ class _Card extends StatelessWidget {
 
 // ---------------------------------------------------------------- per category: donut + legend
 
-/// The month's counted records of [type] (as Laporan counts them, label filter included) that
-/// also match [filter], an SQL condition on `r` and `c` whose parameters start at ?5. Newest first.
+/// The month's counted records of [type] (as Laporan counts them, label and account filters
+/// included) that also match [filter], an SQL condition on `r` and `c` whose parameters start at
+/// ?6. Newest first.
 Future<List<Map<String, dynamic>>> _monthRecords(
   String type,
   DateTime month,
   String? labelId,
+  String? accountId,
   String filter,
   List<Object?> filterArgs,
 ) {
@@ -313,12 +343,12 @@ Future<List<Map<String, dynamic>>> _monthRecords(
     FROM records r
     JOIN accounts a ON a.id = r.account_id
     LEFT JOIN categories c ON c.id = r.category_id
-    WHERE r.status = 'confirmed' AND a.exclude_from_stats = 0 AND r.type = ?1
+    WHERE r.status = 'confirmed' AND ${accountScope(5)} AND r.type = ?1
       AND julianday(r.occurred_at) >= julianday(?2) AND julianday(r.occurred_at) < julianday(?3)
       AND (?4 IS NULL OR EXISTS (SELECT 1 FROM json_each(r.label_ids) l WHERE l.value = ?4))
       AND $filter
     ORDER BY julianday(r.occurred_at) DESC''',
-    [type, utcIso(start), utcIso(end), labelId, ...filterArgs],
+    [type, utcIso(start), utcIso(end), labelId, accountId, ...filterArgs],
   );
 }
 
@@ -332,6 +362,9 @@ class _CategoryCard extends StatefulWidget {
     required this.labels,
     required this.labelId,
     required this.onLabel,
+    required this.accounts,
+    required this.accountId,
+    required this.onAccount,
     required this.month,
     required this.type,
     required this.yearTotals,
@@ -346,6 +379,9 @@ class _CategoryCard extends StatefulWidget {
   final List<Map<String, dynamic>> labels;
   final String? labelId;
   final ValueChanged<String?> onLabel;
+  final List<Map<String, dynamic>> accounts; // `id`, `name`, `exclude_from_stats`
+  final String? accountId;
+  final ValueChanged<String?> onAccount;
   final DateTime month;
   final String type; // 'expense' | 'income'
 
@@ -403,7 +439,8 @@ class _CategoryCardState extends State<_CategoryCard> {
       widget.type,
       widget.month,
       widget.labelId,
-      '(r.category_id IN (SELECT value FROM json_each(?5)) OR (?6 = 1 AND r.category_id IS NULL))',
+      widget.accountId,
+      '(r.category_id IN (SELECT value FROM json_each(?6)) OR (?7 = 1 AND r.category_id IS NULL))',
       [jsonEncode([for (final m in members) ?m.id]), members.any((m) => m.id == null) ? 1 : 0],
     );
     if (!mounted) return;
@@ -435,6 +472,9 @@ class _CategoryCardState extends State<_CategoryCard> {
     final picked = _picked != null && _picked! < parts.length ? _picked : null;
     final half = (parts.length / 2).ceil();
     final labelName = widget.labels.where((l) => l['id'] == widget.labelId).firstOrNull?['name'];
+    final account = widget.accounts.where((a) => a['id'] == widget.accountId).firstOrNull;
+    final accountName = account?['name'] as String?;
+    final accountExcluded = account != null && account['exclude_from_stats'] != 0;
     final fade = motion(context, const Duration(milliseconds: 180));
 
     Widget legend(int i) {
@@ -538,35 +578,53 @@ class _CategoryCardState extends State<_CategoryCard> {
 
     return _Card(
       children: [
-        Row(
+        // The title and the two filters; the filters drop to a second line when they do not fit beside it.
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Expanded(child: Text('Per kategori', style: AppText.heading.copyWith(fontSize: 16))),
-            if (widget.labels.isNotEmpty)
-              PopupMenuButton<String>(
-                tooltip: 'Saring dengan label',
-                initialValue: widget.labelId ?? _allLabels,
-                onSelected: (id) => widget.onLabel(id == _allLabels ? null : id),
-                itemBuilder: (context) => [
-                  const PopupMenuItem(value: _allLabels, child: Text('Semua label')),
-                  for (final l in widget.labels) PopupMenuItem(value: l['id'] as String, child: Text('#${l['name']}')),
+            Text('Per kategori', style: AppText.heading.copyWith(fontSize: 16)),
+            if (widget.accounts.length > 1 || widget.labels.isNotEmpty)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.accounts.length > 1)
+                    _FilterMenu(
+                      tooltip: 'Saring dengan akun',
+                      allText: 'Semua akun',
+                      value: widget.accountId,
+                      valueText: accountName,
+                      onSelected: widget.onAccount,
+                      items: [
+                        for (final a in widget.accounts)
+                          PopupMenuItem(
+                            value: a['id'] as String,
+                            child: Text(a['exclude_from_stats'] == 0 ? '${a['name']}' : '${a['name']} · tidak dihitung'),
+                          ),
+                      ],
+                    ),
+                  if (widget.labels.isNotEmpty)
+                    _FilterMenu(
+                      tooltip: 'Saring dengan label',
+                      allText: 'Semua label',
+                      value: widget.labelId,
+                      valueText: labelName == null ? null : '#$labelName',
+                      onSelected: widget.onLabel,
+                      items: [
+                        for (final l in widget.labels) PopupMenuItem(value: l['id'] as String, child: Text('#${l['name']}')),
+                      ],
+                    ),
                 ],
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        labelName == null ? 'Semua label' : '#$labelName',
-                        style: AppText.label.copyWith(color: c.inkMuted),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.expand_more, size: 16, color: c.inkMuted),
-                    ],
-                  ),
-                ),
               ),
           ],
         ),
+        if (accountExcluded) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Akun ini tidak dihitung di total Beranda dan Diagnosis.',
+            style: AppText.caption.copyWith(color: c.inkMuted),
+          ),
+        ],
         const SizedBox(height: 16),
         if (parts.isEmpty)
           Padding(
@@ -621,6 +679,48 @@ class _CategoryCardState extends State<_CategoryCard> {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// "Semua label" / "Semua akun": a small menu that narrows Laporan. [value] is the picked item's
+/// id (null: all) and [valueText] its name; picking "all" reports null.
+class _FilterMenu extends StatelessWidget {
+  const _FilterMenu({
+    required this.tooltip,
+    required this.allText,
+    required this.value,
+    required this.valueText,
+    required this.onSelected,
+    required this.items,
+  });
+
+  final String tooltip;
+  final String allText;
+  final String? value;
+  final String? valueText;
+  final ValueChanged<String?> onSelected;
+  final List<PopupMenuItem<String>> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return PopupMenuButton<String>(
+      tooltip: tooltip,
+      initialValue: value ?? _allLabels,
+      onSelected: (id) => onSelected(id == _allLabels ? null : id),
+      itemBuilder: (context) => [PopupMenuItem(value: _allLabels, child: Text(allText)), ...items],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(valueText ?? allText, style: AppText.label.copyWith(color: c.inkMuted)),
+            const SizedBox(width: 4),
+            Icon(Icons.expand_more, size: 16, color: c.inkMuted),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -737,16 +837,17 @@ class _BudgetHint extends StatelessWidget {
 /// Segmented bar (14px, 3px gaps) above a list that carries every figure. A segment or a row
 /// lists that level's expenses.
 class _NeedSplit extends StatelessWidget {
-  const _NeedSplit(this.r, {required this.month, required this.labelId});
+  const _NeedSplit(this.r, {required this.month, required this.labelId, required this.accountId});
 
   final MonthReport r;
   final DateTime month;
   final String? labelId;
+  final String? accountId;
 
   Future<void> _showRecords(BuildContext context, String? level) async {
     haptic(Haptic.tick);
     // Records without a category have no level either: they count as "Belum diberi level".
-    final rows = await _monthRecords('expense', month, labelId, 'c.need_level IS ?5', [level]);
+    final rows = await _monthRecords('expense', month, labelId, accountId, 'c.need_level IS ?6', [level]);
     if (!context.mounted) return;
     final amount = r.byNeedLevel[level] ?? 0;
     await showRecordsSheet(
