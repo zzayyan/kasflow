@@ -24,6 +24,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  sqlite3: ^3.5.2 # tests run the app's SQL; the app gets it through powersync
 
 flutter:
   uses-material-design: true

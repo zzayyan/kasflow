@@ -34,13 +34,14 @@ class _CategoriesPageState extends State<CategoriesPage> {
   void initState() {
     super.initState();
     // `used` counts what points at the category: records and bills. Unused ones can be deleted;
-    // used ones are archived instead, so history keeps its categories.
+    // used ones are archived instead, so history keeps its categories. Records are counted in
+    // one pass, not once per category.
     _sub = db
         .watch('''
           SELECT c.*,
-            (SELECT count(*) FROM records r WHERE r.category_id = c.id)
-              + (SELECT count(*) FROM planned_payments p WHERE p.category_id = c.id) AS used
+            COALESCE(u.n, 0) + (SELECT count(*) FROM planned_payments p WHERE p.category_id = c.id) AS used
           FROM categories c
+          LEFT JOIN (SELECT category_id, COUNT(*) AS n FROM records GROUP BY category_id) u ON u.category_id = c.id
           ORDER BY c.name COLLATE NOCASE''')
         .listen((rows) {
           if (mounted) setState(() => _rows = rows);

@@ -106,12 +106,14 @@ Future<void> showRecordForm(BuildContext context, {Prefill? prefill, bool scanRe
     showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
     return;
   }
-  // Most used first, so the quick chips under the form hold the likely picks.
+  // Most used first, so the quick chips under the form hold the likely picks. The records are
+  // counted in one pass; a count per category would read them all once for each category.
   final categories = await db.getAll(
     '''
     SELECT c.id, c.name, c.type, c.keywords, c.icon FROM categories c
+    LEFT JOIN (SELECT category_id, COUNT(*) AS n FROM records GROUP BY category_id) u ON u.category_id = c.id
     WHERE c.archived = 0 OR c.id = ?
-    ORDER BY (SELECT COUNT(*) FROM records r WHERE r.category_id = c.id) DESC, c.name''',
+    ORDER BY COALESCE(u.n, 0) DESC, c.name''',
     [prefill?.categoryId],
   );
   final labels = await db.getAll('SELECT id, name FROM labels ORDER BY name COLLATE NOCASE');

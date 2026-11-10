@@ -287,14 +287,22 @@ String dateOnly(DateTime d) =>
 
 /// Balance per account (`id`, `balance`), derived from confirmed records and never stored, so two
 /// phones syncing at once can't disagree about it. Use as a subquery.
+///
+/// Records are summed per account first (what left or entered each account, then what each
+/// received by transfer), so the cost is two passes over the records however many accounts
+/// there are. Joining records to accounts directly reads every record once per account.
 const accountBalancesSql = '''
-  SELECT a.id, a.initial_balance + COALESCE(SUM(CASE
-      WHEN r.account_id = a.id AND r.type = 'income' THEN r.amount
-      WHEN r.account_id = a.id AND r.type IN ('expense', 'transfer') THEN -r.amount
-      WHEN r.transfer_account_id = a.id THEN r.transfer_amount END), 0) AS balance
+  SELECT a.id, a.initial_balance + COALESCE(m.delta, 0) AS balance
   FROM accounts a
-  LEFT JOIN records r ON a.id IN (r.account_id, r.transfer_account_id) AND r.status = 'confirmed'
-  GROUP BY a.id''';
+  LEFT JOIN (
+    SELECT id, SUM(delta) AS delta FROM (
+      SELECT account_id AS id,
+        CASE WHEN type = 'income' THEN amount WHEN type IN ('expense', 'transfer') THEN -amount END AS delta
+      FROM records WHERE status = 'confirmed'
+      UNION ALL
+      SELECT transfer_account_id, transfer_amount
+      FROM records WHERE status = 'confirmed' AND transfer_account_id != account_id)
+    GROUP BY id) m ON m.id = a.id''';
 
 /// Edits a record in place. Where it came from (source, source_ref, a paid bill) stays as it was.
 Future<void> updateRecord(
