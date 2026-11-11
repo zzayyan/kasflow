@@ -891,17 +891,23 @@ class _NotificationIntro extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (enabled)
-                  FilledButton.icon(
+                if (enabled) ...[
+                  // Access is per phone, so it can already be on. The settings stay one tap away.
+                  TextButton.icon(
+                    onPressed: openNotificationAccessSettings,
+                    icon: const Icon(Icons.check_circle, size: 18),
+                    label: const Text('Akses notifikasi aktif · Atur'),
+                  ),
+                  const SizedBox(height: 4),
+                  FilledButton(
                     onPressed: onNext,
-                    icon: const Icon(Icons.check, size: 20),
-                    label: const Text('Akses notifikasi aktif · Lanjut'),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(58),
                       textStyle: AppText.button.copyWith(fontSize: 17),
                     ),
-                  )
-                else ...[
+                    child: const Text('Lanjut'),
+                  ),
+                ] else ...[
                   FilledButton(
                     onPressed: () {
                       onNext(); // the next page waits underneath while Android's settings are open
