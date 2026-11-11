@@ -310,6 +310,15 @@ Future<void> showAccountForm(BuildContext context, {Map<String, dynamic>? accoun
   builder: (_) => AccountForm(account: account),
 );
 
+/// For a form that needs an account first: says so, and opens the account form from the bar. A new
+/// user's Beranda has no Akun button yet, so pointing at one would lead nowhere.
+void askForAccount(BuildContext context) => ScaffoldMessenger.of(context).showSnackBar(
+  SnackBar(
+    content: const Text('Tambah satu akun dulu, misalnya Dompet.'),
+    action: SnackBarAction(label: 'Tambah akun', onPressed: () => showAccountForm(context)),
+  ),
+);
+
 class AccountForm extends StatefulWidget {
   const AccountForm({super.key, this.account});
 

@@ -39,12 +39,19 @@ void main() {
       expect(find.text('Daftar, 2 akun'), findsOneWidget);
     });
 
+    testWidgets('Lewati on the first page lands on the accounts page ($brightness)', (tester) async {
+      await _pump(tester, const WelcomePage(), brightness);
+      await tester.tap(find.text('Lewati'));
+      await tester.pumpAndSettle();
+      expect(find.text('Uangmu disimpan di mana saja?'), findsOneWidget);
+    });
+
     testWidgets('Login and Daftar build ($brightness)', (tester) async {
       await _pump(tester, const LoginPage(), brightness);
       expect(find.text('Selamat datang lagi'), findsOneWidget);
       await tester.tap(find.text('Daftar').first);
       await tester.pump();
-      expect(find.text('Nama panggilan'), findsOneWidget);
+      expect(find.text('Nama panggilan (opsional)'), findsOneWidget);
     });
   }
 }

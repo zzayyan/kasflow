@@ -27,6 +27,17 @@ class _LoginPageState extends State<LoginPage> {
   final _password = TextEditingController();
   bool _busy = false;
   bool _showPassword = false;
+  String? _confirmEmail; // set once sign-up has sent a confirmation link; the page waits for the sign-in
+
+  /// A user made in the last day is the one who just signed up here, even after an email
+  /// confirmation. An older one came from elsewhere, and their accounts sync down instead.
+  static bool _isNew(User user) =>
+      DateTime.now().difference(DateTime.parse(user.createdAt)) < const Duration(hours: 24);
+
+  Future<void> _finish(User? user) async {
+    if (user != null && _isNew(user)) await createStarterAccounts(widget.starterAccounts);
+    if (mounted) Navigator.of(context).popUntil((route) => route.isFirst); // the root swaps to Beranda
+  }
 
   @override
   void dispose() {
@@ -46,7 +57,6 @@ class _LoginPageState extends State<LoginPage> {
     // New passwords need 8; signing in accepts whatever an older account was made with.
     if (_signUp && password.length < 8) return showMessage(context, 'Password minimal 8 karakter.');
     if (!_signUp && password.isEmpty) return showMessage(context, 'Isi password.');
-    final nav = Navigator.of(context);
     setState(() => _busy = true);
     try {
       if (_signUp) {
@@ -57,18 +67,20 @@ class _LoginPageState extends State<LoginPage> {
           data: name.isEmpty ? null : {'name': name},
         );
         if (res.session == null) {
-          // Email confirmation is on: the account exists once the link is opened.
+          // Email confirmation is on: the account exists once the link is opened. The page stays
+          // on Masuk with the email and password kept, so coming back is one tap.
           if (mounted) {
-            setState(() => _signUp = false);
-            showMessage(context, 'Cek email untuk konfirmasi, lalu masuk di sini.');
+            setState(() {
+              _signUp = false;
+              _confirmEmail = email;
+            });
           }
           return;
         }
-        await createStarterAccounts(widget.starterAccounts);
-        nav.popUntil((route) => route.isFirst); // the app's root swaps to Beranda on the new session
+        await _finish(res.user);
       } else {
-        await supabase.auth.signInWithPassword(email: email, password: password);
-        nav.popUntil((route) => route.isFirst);
+        // The starter accounts picked in the intro are made here too, after an email confirmation.
+        await _finish((await supabase.auth.signInWithPassword(email: email, password: password)).user);
       }
     } on AuthException catch (e) {
       if (mounted) showMessage(context, e.message);
@@ -79,17 +91,11 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _google() async {
     haptic(Haptic.click);
-    final nav = Navigator.of(context);
     setState(() => _busy = true);
     try {
       final user = await signInWithGoogle();
       if (user == null) return; // picker canceled
-      // Google can resolve to an existing user (same verified email). Their accounts sync down from
-      // the server, so the intro's starter accounts only go to a user created just now.
-      if (DateTime.now().difference(DateTime.parse(user.createdAt)) < const Duration(minutes: 1)) {
-        await createStarterAccounts(widget.starterAccounts);
-      }
-      nav.popUntil((route) => route.isFirst);
+      await _finish(user); // Google may resolve to an existing user, whom _isNew tells apart
     } on AuthException catch (e) {
       if (mounted) showMessage(context, e.message);
     } on GoogleSignInException {
@@ -152,12 +158,21 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        _signUp ? 'Buat akun' : 'Selamat datang lagi',
+                        _signUp
+                            ? 'Buat akun'
+                            : _confirmEmail != null
+                            ? 'Satu langkah lagi'
+                            : 'Selamat datang lagi',
                         style: AppText.title.copyWith(fontSize: 30, letterSpacing: -0.5, color: c.onHero),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _signUp ? 'Satu akun untuk semua HP-mu.' : 'Masuk untuk lanjut mencatat.',
+                        _signUp
+                            ? 'Satu akun untuk semua HP-mu.'
+                            : _confirmEmail != null
+                            // Stays until the sign-in, unlike a snackbar: the user leaves for the email app.
+                            ? 'Link konfirmasi terkirim ke $_confirmEmail. Buka link itu, lalu masuk di sini.'
+                            : 'Masuk untuk lanjut mencatat.',
                         style: AppText.body.copyWith(color: c.onHeroMuted, height: 1.45),
                       ),
                     ],
@@ -182,7 +197,7 @@ class _LoginPageState extends State<LoginPage> {
                         children: [
                           if (_signUp)
                             field(
-                              'Nama panggilan',
+                              'Nama panggilan (opsional)',
                               _name,
                               TextField(
                                 controller: _name,

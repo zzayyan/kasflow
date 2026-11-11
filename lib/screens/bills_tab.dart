@@ -10,6 +10,7 @@ import '../money.dart';
 import '../recurrence.dart';
 import '../theme.dart';
 import '../ui.dart';
+import 'accounts_tab.dart';
 import 'record_form.dart';
 
 // A7: planned payments (tagihan rutin) with reminders.
@@ -123,7 +124,7 @@ Future<void> showBillForm(BuildContext context, {String? name, String type = 'ex
     'SELECT id, name, type, keywords, icon FROM categories WHERE archived = 0 ORDER BY name',
   );
   if (!context.mounted) return;
-  if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
+  if (accounts.isEmpty) return askForAccount(context);
   final (h, m) = parseReminderTime(await getPref('reminder_time'));
   if (!context.mounted) return;
   await showModalBottomSheet(

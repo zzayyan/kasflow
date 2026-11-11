@@ -14,6 +14,7 @@ import '../quick_input.dart';
 import '../receipt_items.dart';
 import '../theme.dart';
 import '../ui.dart';
+import 'accounts_tab.dart';
 import 'labels_page.dart';
 
 /// Returns true when the record was deleted.
@@ -102,10 +103,7 @@ Future<void> showRecordForm(BuildContext context, {Prefill? prefill, bool scanRe
     [prefill?.accountId, prefill?.transferAccountId],
   );
   if (!context.mounted) return;
-  if (accounts.isEmpty) {
-    showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
-    return;
-  }
+  if (accounts.isEmpty) return askForAccount(context);
   // Most used first, so the quick chips under the form hold the likely picks. The records are
   // counted in one pass; a count per category would read them all once for each category.
   final categories = await db.getAll(
@@ -1109,21 +1107,22 @@ class _ItemSheetState extends State<_ItemSheet> {
 /// Saves one line of quick input ("bakso 25rb pakai dana", "makan 25rb parkir 5rb"), which may
 /// hold several transactions. [onParsed] runs once the line is understood. With [review], and for
 /// an entry with no category, a transfer, or an amount Gemini may have misread, the record form
-/// opens instead of saving.
+/// opens instead of saving. [offline] skips Gemini: the local rules alone, at once.
 Future<void> submitQuickInput(
   BuildContext context,
   String text, {
   VoidCallback? onParsed,
   bool review = false,
+  bool offline = false,
 }) async {
   final input = text.trim();
   if (input.isEmpty) return;
   final accounts = await db.getAll('SELECT id, name, provider, currency FROM accounts WHERE archived = 0');
   final categories = await db.getAll('SELECT id, name, type, keywords FROM categories WHERE archived = 0');
   if (!context.mounted) return;
-  if (accounts.isEmpty) return showMessage(context, 'Buat akun dulu lewat Beranda, tombol Akun.');
+  if (accounts.isEmpty) return askForAccount(context);
   final entries =
-      await _askGemini(input, accounts, categories) ??
+      (offline ? null : await _askGemini(input, accounts, categories)) ??
       [?parseQuickInput(input, accounts: accounts, categories: categories)];
   if (!context.mounted) return;
   if (entries.isEmpty) return showMessage(context, 'Nominal tidak ditemukan. Contoh: bakso 25rb pakai gopay');

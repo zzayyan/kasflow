@@ -165,7 +165,8 @@ class _WelcomePageState extends State<WelcomePage> with WidgetsBindingObserver {
             controller: _pages,
             onPageChanged: (page) => setState(() => _page = page),
             children: [
-              _WelcomeIntro(onNext: () => _go(1), onLogin: () => _login(signUp: false)),
+              // Lewati goes straight to the accounts page: the notification pitch can wait.
+              _WelcomeIntro(onNext: () => _go(1), onSkip: () => _go(2), onLogin: () => _login(signUp: false)),
               _NotificationIntro(
                 enabled: _notifications,
                 onBack: () => _go(0),
@@ -265,9 +266,10 @@ class _Header extends StatelessWidget {
 }
 
 class _WelcomeIntro extends StatelessWidget {
-  const _WelcomeIntro({required this.onNext, required this.onLogin});
+  const _WelcomeIntro({required this.onNext, required this.onSkip, required this.onLogin});
 
   final VoidCallback onNext;
+  final VoidCallback onSkip;
   final VoidCallback onLogin;
 
   @override
@@ -282,7 +284,7 @@ class _WelcomeIntro extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _Header(1, onSkip: onNext, onColor: true),
+              _Header(1, onSkip: onSkip, onColor: true),
               const SizedBox(height: 20),
               Text.rich(
                 const TextSpan(

@@ -1047,8 +1047,12 @@ class _NoRecords extends StatelessWidget {
                 runSpacing: AppSpace.tight,
                 children: [
                   // Opens the filled-in form to look at; nothing is saved until the user taps Simpan.
+                  // The local rules read these lines, so the form opens at once rather than after Gemini.
                   for (final text in _examples)
-                    ActionChip(label: Text(text), onPressed: () => submitQuickInput(context, text, review: true)),
+                    ActionChip(
+                      label: Text(text),
+                      onPressed: () => submitQuickInput(context, text, review: true, offline: true),
+                    ),
                 ],
               ),
             ],
