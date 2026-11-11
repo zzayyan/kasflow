@@ -51,6 +51,7 @@ const budgetSpentSql = 'SELECT COALESCE(SUM(r.amount), 0) AS spent $_budgetRecor
 const _budgetRecordsSql = '''
   FROM records r JOIN accounts a ON a.id = r.account_id
   WHERE r.type = 'expense' AND r.status = 'confirmed' AND a.exclude_from_stats = 0
+    AND COALESCE(r.exclude_from_budget, 0) = 0
     AND julianday(r.occurred_at) >= julianday(?1) AND julianday(r.occurred_at) < julianday(?2)
     AND (json_array_length(?3) = 0 OR r.category_id IN (SELECT value FROM json_each(?3)))
     AND (json_array_length(?4) = 0 OR r.account_id IN (SELECT value FROM json_each(?4)))

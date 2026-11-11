@@ -462,6 +462,8 @@ class RecordRow extends StatelessWidget {
     final title = note == null || note.isEmpty ? category : note;
     final subtitle = [
       if (title != category) category,
+      // Early in the line, so it shows before the ellipsis cuts the rest.
+      if (type == 'expense' && (r['exclude_from_budget'] ?? 0) != 0) 'di luar budget',
       if (withAccount || title == category) ?r['account_name'],
       if (withAccount) ?r['label_names'],
       if (r['item_count'] case final int n when n > 0) '$n item',

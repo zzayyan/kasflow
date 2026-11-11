@@ -51,6 +51,7 @@ class Prefill {
     source: (r['source'] as String?) ?? 'manual',
     labelIds: labelIdsOf(r['label_ids']),
     items: itemsOf(r['items']),
+    excludeFromBudget: (r['exclude_from_budget'] ?? 0) != 0,
   );
 
   const Prefill({
@@ -71,6 +72,7 @@ class Prefill {
     this.nextDue,
     this.labelIds = const [],
     this.items = const [],
+    this.excludeFromBudget = false,
   });
 
   final String? recordId; // edit this record instead of inserting a new one
@@ -90,6 +92,7 @@ class Prefill {
   final String? transferAccountId; // transfer into this account, e.g. a saving goal's account
   final List<String> labelIds;
   final List<ReceiptItem> items; // a scanned receipt's lines
+  final bool excludeFromBudget; // an expense kept out of every budget
 }
 
 /// With [scanReceipt] the form opens straight on the receipt photo choice.
@@ -175,6 +178,7 @@ class _RecordFormState extends State<RecordForm> {
   late Set<String> _labelIds = {...?widget.prefill?.labelIds};
   late List<ReceiptItem> _items = [...?widget.prefill?.items];
   bool _allItems = false; // a long receipt shows its first few lines until asked for the rest
+  late bool _inBudget = !(widget.prefill?.excludeFromBudget ?? false);
 
   @override
   void initState() {
@@ -450,6 +454,7 @@ class _RecordFormState extends State<RecordForm> {
         note: note.isEmpty ? null : note,
         labelIds: [..._labelIds],
         items: encodeItems(_items),
+        excludeFromBudget: _type == 'expense' && !_inBudget,
       );
     } else {
       await insertRecord(
@@ -469,6 +474,7 @@ class _RecordFormState extends State<RecordForm> {
         nextDue: p?.nextDue,
         labelIds: [..._labelIds],
         items: encodeItems(_items),
+        excludeFromBudget: _type == 'expense' && !_inBudget,
       );
       // The fee leaves the source account too, but as spending, so Laporan counts it.
       if (fee != null) {
@@ -911,6 +917,17 @@ class _RecordFormState extends State<RecordForm> {
                     ],
                   ),
                 ),
+                // Like an account's Laporan switch: on by default, off for a one-off such as a doctor's
+                // visit. It leaves budgets only; Laporan, Diagnosis and the balance still count it.
+                if (_type == 'expense')
+                  FormRow(
+                    icon: Icons.savings_outlined,
+                    label: 'Budget',
+                    value: _inBudget ? 'Dihitung di budget' : 'Tidak dihitung',
+                    trailing: Switch(value: _inBudget, onChanged: (v) => setState(() => _inBudget = v)),
+                    chevron: false,
+                    onTap: () => setState(() => _inBudget = !_inBudget),
+                  ),
               ],
             ),
             // What the receipt held, read before judging the category below.

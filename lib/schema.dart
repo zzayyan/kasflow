@@ -65,6 +65,7 @@ const schema = Schema([
       Column.text('source'),
       Column.text('source_ref'),
       Column.text('planned_payment_id'),
+      Column.integer('exclude_from_budget'), // 1: an expense kept out of every budget's spending
       Column.text('created_at'),
       Column.text('updated_at'),
     ],
