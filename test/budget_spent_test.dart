@@ -1,4 +1,7 @@
 import 'package:cashflow_app/screens/plans_tab.dart';
+import 'package:cashflow_app/screens/records_tab.dart';
+import 'package:cashflow_app/theme.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart';
 
@@ -19,4 +22,33 @@ void main() {
     final spent = db.select(budgetSpentSql, ['2026-11-01', '2026-12-01', '[]', '[]', '[]']).first['spent'];
     expect(spent, 150); // the doctor's visit stays out; a row from before the column counts
   });
+
+  for (final brightness in Brightness.values) {
+    testWidgets('RecordRow marks an expense kept out of budgets ($brightness)', (tester) async {
+      Map<String, dynamic> row(int excluded) => {
+        'id': 'r$excluded',
+        'type': 'expense',
+        'amount': 15000000,
+        'note': 'Dokter gigi',
+        'category_name': 'Kesehatan',
+        'account_name': 'BRI',
+        'exclude_from_budget': excluded,
+      };
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(brightness),
+          home: Scaffold(
+            body: Column(
+              children: [
+                RecordRow(row(1), detail: '15.33'),
+                RecordRow(row(0), detail: '15.33'),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Kesehatan · di luar budget'), findsOneWidget);
+      expect(find.text('Kesehatan'), findsOneWidget); // the counted one says nothing extra
+    });
+  }
 }
