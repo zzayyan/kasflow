@@ -22,6 +22,9 @@ const _track = Color(0xFF3C6B54);
 const _deepCard = Color(0xFF163828);
 const _pageDuration = Duration(milliseconds: 350);
 
+/// "e-wallet" with a word joiner after the hyphen, so a line never breaks it into "e-" and "wallet".
+const _eWallet = 'e-\u2060wallet';
+
 /// 0..1 of the way from [from] to [to] seconds at [s] seconds; the demos below are timed this way.
 double _seg(double s, double from, double to) => ((s - from) / (to - from)).clamp(0.0, 1.0);
 
@@ -918,6 +921,37 @@ class _NotificationIntro extends StatelessWidget {
       minimumSize: const Size.fromHeight(58),
       textStyle: AppText.button.copyWith(fontSize: 17),
     );
+    // A numbered step, or a done one ([number] null) with a check. The numbers carry the order:
+    // Android's settings first, then the bank apps.
+    Widget step(int? number, Widget text, {Widget? trailing}) => ConstrainedBox(
+      constraints: BoxConstraints(minHeight: trailing == null ? 0 : 48),
+      child: Padding(
+        padding: EdgeInsets.only(bottom: trailing == null ? AppSpace.tight : 0),
+        child: Row(
+          crossAxisAlignment: trailing == null ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 22,
+              height: 22,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: number == null ? c.primary : null,
+                border: number == null ? null : Border.all(color: c.primary, width: 1.5),
+              ),
+              child: number == null
+                  ? Icon(Icons.check, size: 14, color: c.onPrimary)
+                  : Text('$number', style: AppText.caption.copyWith(fontWeight: FontWeight.w600, color: c.primary)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DefaultTextStyle.merge(style: AppText.label.copyWith(fontSize: 14, height: 1.4), child: text),
+            ),
+            ?trailing,
+          ],
+        ),
+      ),
+    );
     return SafeArea(
       child: Column(
         children: [
@@ -947,7 +981,13 @@ class _NotificationIntro extends StatelessWidget {
                 const SizedBox(height: 22),
                 ExcludeSemantics(child: _NotificationDemo(active: active)),
                 const SizedBox(height: 22),
-                point(Icons.account_balance_outlined, 'Yang dibaca hanya notifikasi bank dan e-wallet'),
+                point(Icons.account_balance_outlined, 'Yang dibaca hanya notifikasi bank dan $_eWallet'),
+                // Notification access lets Cashflow read what other apps post; nothing is read when the
+                // bank app posts nothing, which Cashflow cannot turn on itself.
+                point(
+                  Icons.notifications_active_outlined,
+                  'Hanya bekerja kalau aplikasi bank dan $_eWallet-mu mengirim notifikasi transaksi',
+                ),
                 // The text goes to Gemini (parse-transaction) after redact() in notifications.dart.
                 point(Icons.lock_outline, 'Nama, email, dan nomor rekening dihapus di HP sebelum AI membacanya'),
                 point(Icons.fact_check_outlined, 'Tidak ada yang tersimpan sebelum kamu cek'),
@@ -964,38 +1004,42 @@ class _NotificationIntro extends StatelessWidget {
                 key: ValueKey(enabled),
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (enabled) ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.check_circle, size: 18, color: c.primary),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text('Akses notifikasi sudah aktif', style: AppText.label.copyWith(fontSize: 14)),
+                  // Two things must be on, and only the first is Cashflow's to ask for.
+                  if (enabled)
+                    step(
+                      null,
+                      const Text('Cashflow sudah boleh membaca notifikasi'),
+                      trailing: TextButton(
+                        onPressed: openNotificationAccessSettings,
+                        style: TextButton.styleFrom(
+                          textStyle: AppText.label.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
                         ),
-                        TextButton(
-                          onPressed: openNotificationAccessSettings,
-                          style: TextButton.styleFrom(
-                            textStyle: AppText.label.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
-                          ),
-                          child: const Text('Atur'),
+                        child: const Text('Atur'),
+                      ),
+                    )
+                  else
+                    step(
+                      1,
+                      const Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(text: 'Nyalakan '),
+                            TextSpan(text: 'Cashflow', style: TextStyle(fontWeight: FontWeight.w600)),
+                            TextSpan(text: ' di daftar Akses notifikasi, lalu kembali ke sini'),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                    FilledButton(onPressed: onNext, style: button, child: const Text('Lanjut')),
-                  ] else ...[
-                    Text(
-                      'Di pengaturan Android, nyalakan Cashflow lalu kembali ke sini.',
-                      textAlign: TextAlign.center,
-                      style: AppText.label.copyWith(fontSize: 14, color: c.inkMuted),
-                    ),
-                    const SizedBox(height: AppSpace.tight),
+                  step(2, const Text('Pastikan notifikasi transaksi di aplikasi bank dan $_eWallet-mu aktif')),
+                  const SizedBox(height: AppSpace.tight),
+                  if (enabled)
+                    FilledButton(onPressed: onNext, style: button, child: const Text('Lanjut'))
+                  else
                     FilledButton(
                       onPressed: openNotificationAccessSettings,
                       style: button,
                       child: const Text('Izinkan akses notifikasi'),
                     ),
-                  ],
                   _LoginLink(onTap: onLogin, color: c.primary, muted: c.inkMuted),
                 ],
               ),
