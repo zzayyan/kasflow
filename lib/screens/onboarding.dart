@@ -215,7 +215,9 @@ class _WelcomePageState extends State<WelcomePage> with WidgetsBindingObserver {
 
   Future<void> _checkNotifications() async {
     final enabled = await notificationAccessEnabled();
-    if (mounted && enabled != _notifications) setState(() => _notifications = enabled);
+    if (!mounted || enabled == _notifications) return;
+    if (enabled) haptic(Haptic.click); // back from the settings with access on: page 2 confirms it
+    setState(() => _notifications = enabled);
   }
 
   // A zero-length page animation trips an assert, so with animations removed the page jumps.
@@ -658,8 +660,8 @@ class _IllustrationState extends State<_Illustration> with SingleTickerProviderS
   }
 }
 
-/// The second page's demo, on a loop: a bank notification drops in, a record forms below it waiting
-/// to be checked, and is saved once checked.
+/// The second page's demo, on a loop, drawn like the "Perlu dicek" card in Transaksi: a bank
+/// notification arrives, becomes an item waiting to be checked, and is swiped right to save.
 class _NotificationDemo extends StatefulWidget {
   const _NotificationDemo({required this.active});
 
@@ -674,12 +676,12 @@ class _NotificationDemoState extends State<_NotificationDemo> with SingleTickerP
   bool get active => widget.active;
 
   @override
-  double get stillAt => 2; // the record formed, still waiting to be checked
+  double get stillAt => 1.5; // the item is waiting to be checked
 
   @override
   void initState() {
     super.initState();
-    clock = AnimationController(vsync: this, duration: const Duration(seconds: 5));
+    clock = AnimationController(vsync: this, duration: const Duration(milliseconds: 5800));
   }
 
   @override
@@ -698,115 +700,177 @@ class _NotificationDemoState extends State<_NotificationDemo> with SingleTickerP
 
   Widget _frame(BuildContext context, double s) {
     final c = AppColors.of(context);
-    final fadeOut = 1 - _seg(s, 4.5, 5);
-    final drop = Curves.easeOutCubic.transform(_seg(s, 0, 0.5));
-    final arrow = _seg(s, 0.6, 0.9);
-    final form = Curves.easeOutCubic.transform(_seg(s, 1, 1.5));
-    final checked = s >= 2.8;
-    // Opacity and offset only, so the card keeps its size through the loop.
-    Widget step(double t, double dy, Widget child) => Opacity(
-      opacity: t * fadeOut,
-      child: Transform.translate(offset: Offset(0, dy * (1 - t)), child: child),
-    );
+    final out = 1 - _seg(s, 5.2, 5.6); // the saved state clears before the next notification
+    final arrive = Curves.easeOutCubic.transform(_seg(s, 0, 0.4));
+    final arrow = _seg(s, 0.45, 0.7) * out;
+    final item = Curves.easeOutCubic.transform(_seg(s, 0.7, 1.1));
+    final swipe = Curves.easeInOutCubic.transform(_seg(s, 2.2, 2.9)) * 0.42;
+    final gone = Curves.easeInCubic.transform(_seg(s, 3.2, 3.5));
+    final saved = Curves.easeOutCubic.transform(_seg(s, 3.6, 4)) * out;
+    final radius = BorderRadius.circular(18);
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(color: c.primarySoft, borderRadius: BorderRadius.circular(26)),
+      padding: const EdgeInsets.all(AppSpace.card),
+      decoration: BoxDecoration(color: c.primarySoft, borderRadius: BorderRadius.circular(AppRadius.card)),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          step(
-            drop,
-            -16,
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(18)),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(color: c.surfaceMuted, borderRadius: BorderRadius.circular(10)),
-                    child: Text('BCA', style: AppText.caption.copyWith(fontSize: 10, fontWeight: FontWeight.w700)),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('BCA mobile · sekarang', style: AppText.label.copyWith(fontWeight: FontWeight.w600)),
-                        Text(
-                          'Transaksi debit Rp 150.000 QRIS ALFAMART KUNINGAN berhasil',
-                          style: AppText.caption.copyWith(color: c.inkMuted),
-                        ),
-                      ],
+          // The notification stays: each loop it arrives again, as the next one would.
+          Opacity(
+            opacity: 0.4 + 0.6 * arrive,
+            child: Transform.translate(
+              offset: Offset(0, -8 * (1 - arrive)),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(color: c.surface, borderRadius: radius),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(color: c.surfaceMuted, borderRadius: BorderRadius.circular(10)),
+                      child: Text('BCA', style: AppText.caption.copyWith(fontSize: 10, fontWeight: FontWeight.w700)),
                     ),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('BCA mobile · sekarang', style: AppText.label.copyWith(fontWeight: FontWeight.w600)),
+                          Text(
+                            'Transaksi debit Rp 150.000 QRIS ALFAMART KUNINGAN berhasil',
+                            style: AppText.caption.copyWith(color: c.inkMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Opacity(
+            opacity: arrow,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Icon(Icons.arrow_downward, size: 20, color: c.primary),
+            ),
+          ),
+          Opacity(
+            opacity: item * out,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: AppSpace.tight),
+              child: Row(
+                children: [
+                  Expanded(child: Text('Perlu dicek', style: AppText.bodyStrong.copyWith(fontSize: 14))),
+                  Icon(Icons.swap_horiz, size: 14, color: c.onPrimarySoft),
+                  const SizedBox(width: 4),
+                  Text('geser untuk memilih', style: AppText.caption.copyWith(color: c.onPrimarySoft)),
                 ],
               ),
             ),
           ),
-          step(
-            arrow,
-            -6,
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Icon(Icons.arrow_downward, size: 22, color: c.primary),
-            ),
-          ),
-          step(
-            form,
-            10,
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(18)),
-              child: Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(color: c.surfaceMuted, shape: BoxShape.circle),
-                    child: Icon(Icons.shopping_basket_outlined, size: 20, color: c.ink),
+          // Clipped like a list row, so the swiped item leaves through the edge instead of over it.
+          ClipRRect(
+            borderRadius: radius,
+            child: Stack(
+              children: [
+                // Behind the item, as in Transaksi: a swipe right shows Simpan.
+                Positioned.fill(
+                  child: Opacity(
+                    opacity: swipe > 0 ? 1 - _seg(s, 3.4, 3.7) : 0,
+                    child: Container(
+                      decoration: BoxDecoration(color: c.primary, borderRadius: radius),
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      alignment: Alignment.centerLeft,
+                      child: Row(
+                        children: [
+                          Icon(Icons.check, color: c.onPrimary),
+                          const SizedBox(width: 8),
+                          Text('Simpan', style: AppText.bodyStrong.copyWith(fontSize: 14, color: c.onPrimary)),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Belanja Harian', style: AppText.bodyStrong.copyWith(fontSize: 14)),
-                        AnimatedSwitcher(
-                          duration: motion(context, const Duration(milliseconds: 250)),
-                          layoutBuilder: (current, previous) =>
-                              Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
-                          child: checked
-                              ? Text.rich(
-                                  key: const ValueKey('saved'),
-                                  TextSpan(
-                                    children: [
-                                      WidgetSpan(
-                                        alignment: PlaceholderAlignment.middle,
-                                        child: Padding(
-                                          padding: const EdgeInsets.only(right: 4),
-                                          child: Icon(Icons.check_circle, size: 14, color: c.primary),
-                                        ),
-                                      ),
-                                      const TextSpan(text: 'BCA · kamu cek, tersimpan'),
-                                    ],
-                                  ),
-                                  style: AppText.caption.copyWith(color: c.primary, fontWeight: FontWeight.w600),
-                                )
-                              : Text(
-                                  'BCA · perlu dicek',
-                                  key: const ValueKey('check'),
+                ),
+                Opacity(
+                  opacity: item * (1 - gone),
+                  child: FractionalTranslation(
+                    translation: Offset(swipe + gone * 0.7, 0.15 * (1 - item)),
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      decoration: BoxDecoration(color: c.surface, borderRadius: radius),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(color: c.surfaceMuted, shape: BoxShape.circle),
+                            child: Text(
+                              'BCA',
+                              style: AppText.caption.copyWith(fontSize: 11, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpace.gap),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('−${formatAmount(15000000)}', style: AppText.amount),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Belanja Harian · QRIS ALFAMART KUNINGAN',
                                   style: AppText.caption.copyWith(color: c.inkMuted),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                        ),
-                      ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  Text('−${formatAmount(15000000)}', style: AppText.amount.copyWith(fontSize: 14)),
-                ],
-              ),
+                ),
+                // Where the item was, once saved.
+                Positioned.fill(
+                  child: Opacity(
+                    opacity: saved,
+                    child: Transform.translate(
+                      offset: Offset(0, 6 * (1 - saved)),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 14),
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(color: c.primary, shape: BoxShape.circle),
+                            child: Icon(Icons.check, size: 20, color: c.onPrimary),
+                          ),
+                          const SizedBox(width: AppSpace.gap),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Tersimpan', style: AppText.bodyStrong.copyWith(fontSize: 14)),
+                                Text(
+                                  'Belanja Harian · −${formatAmount(15000000)} · BCA',
+                                  style: AppText.caption.copyWith(color: c.onPrimarySoft),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -834,7 +898,7 @@ class _NotificationIntro extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     Widget point(IconData icon, String text) => Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: AppSpace.gap),
       child: Row(
         children: [
           Container(
@@ -843,12 +907,16 @@ class _NotificationIntro extends StatelessWidget {
             decoration: BoxDecoration(color: c.surface, shape: BoxShape.circle),
             child: Icon(icon, size: 18, color: c.primary),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpace.gap),
           Expanded(
             child: Text(text, style: AppText.label.copyWith(fontSize: 14, height: 1.4, color: c.ink)),
           ),
         ],
       ),
+    );
+    final button = FilledButton.styleFrom(
+      minimumSize: const Size.fromHeight(58),
+      textStyle: AppText.button.copyWith(fontSize: 17),
     );
     return SafeArea(
       child: Column(
@@ -872,62 +940,65 @@ class _NotificationIntro extends StatelessWidget {
                   delay: const Duration(milliseconds: 120),
                   child: Text(
                     'Setiap ada transaksi di BCA, GoPay, DANA, dan lainnya, Cashflow menyiapkan catatannya. '
-                    'Kamu tinggal cek lalu simpan.',
+                    'Kamu tinggal cek, lalu simpan.',
                     style: AppText.body.copyWith(height: 1.5, color: c.inkMuted),
                   ),
                 ),
                 const SizedBox(height: 22),
-                // Before and after, as drawn: a bank notification becomes a record waiting to be checked.
                 ExcludeSemantics(child: _NotificationDemo(active: active)),
                 const SizedBox(height: 22),
-                point(Icons.account_balance_outlined, 'Hanya notifikasi aplikasi bank dan e-wallet yang dibaca'),
-                point(Icons.lock_outline, 'Isi notifikasi tetap di HP ini, tidak dikirim ke server'),
-                point(Icons.check, 'Tidak ada yang tersimpan sebelum kamu cek'),
+                point(Icons.account_balance_outlined, 'Yang dibaca hanya notifikasi bank dan e-wallet'),
+                // The text goes to Gemini (parse-transaction) after redact() in notifications.dart.
+                point(Icons.lock_outline, 'Nama, email, dan nomor rekening dihapus di HP sebelum AI membacanya'),
+                point(Icons.fact_check_outlined, 'Tidak ada yang tersimpan sebelum kamu cek'),
               ],
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (enabled) ...[
-                  // Access is per phone, so it can already be on. The settings stay one tap away.
-                  TextButton.icon(
-                    onPressed: openNotificationAccessSettings,
-                    icon: const Icon(Icons.check_circle, size: 18),
-                    label: const Text('Akses notifikasi aktif · Atur'),
-                  ),
-                  const SizedBox(height: 4),
-                  FilledButton(
-                    onPressed: onNext,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(58),
-                      textStyle: AppText.button.copyWith(fontSize: 17),
+            // The page stays while Android's settings are open and turns to "aktif" on the way back,
+            // so the user sees that it worked before moving on.
+            child: AnimatedSwitcher(
+              duration: motion(context, const Duration(milliseconds: 250)),
+              child: Column(
+                key: ValueKey(enabled),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (enabled) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.check_circle, size: 18, color: c.primary),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text('Akses notifikasi sudah aktif', style: AppText.label.copyWith(fontSize: 14)),
+                        ),
+                        TextButton(
+                          onPressed: openNotificationAccessSettings,
+                          style: TextButton.styleFrom(
+                            textStyle: AppText.label.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
+                          ),
+                          child: const Text('Atur'),
+                        ),
+                      ],
                     ),
-                    child: const Text('Lanjut'),
-                  ),
-                ] else ...[
-                  FilledButton(
-                    onPressed: () {
-                      onNext(); // the next page waits underneath while Android's settings are open
-                      openNotificationAccessSettings();
-                    },
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(58),
-                      textStyle: AppText.button.copyWith(fontSize: 17),
+                    FilledButton(onPressed: onNext, style: button, child: const Text('Lanjut')),
+                  ] else ...[
+                    Text(
+                      'Di pengaturan Android, nyalakan Cashflow lalu kembali ke sini.',
+                      textAlign: TextAlign.center,
+                      style: AppText.label.copyWith(fontSize: 14, color: c.inkMuted),
                     ),
-                    child: const Text('Izinkan akses notifikasi'),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Kamu akan dibawa ke pengaturan Android',
-                    textAlign: TextAlign.center,
-                    style: AppText.caption.copyWith(color: c.inkMuted),
-                  ),
+                    const SizedBox(height: AppSpace.tight),
+                    FilledButton(
+                      onPressed: openNotificationAccessSettings,
+                      style: button,
+                      child: const Text('Izinkan akses notifikasi'),
+                    ),
+                  ],
+                  _LoginLink(onTap: onLogin, color: c.primary, muted: c.inkMuted),
                 ],
-                _LoginLink(onTap: onLogin, color: c.primary, muted: c.inkMuted),
-              ],
+              ),
             ),
           ),
         ],

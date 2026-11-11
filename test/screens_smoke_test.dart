@@ -61,7 +61,7 @@ void main() {
       for (var i = 0; i < 8; i++) {
         await tester.pump(const Duration(milliseconds: 500));
       }
-      expect(find.textContaining('kamu cek, tersimpan'), findsOneWidget);
+      expect(find.text('Tersimpan'), findsOneWidget);
       await tester.pumpWidget(const SizedBox()); // stops the loops before the test ends
     });
 
