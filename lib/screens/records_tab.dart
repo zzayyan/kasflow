@@ -18,6 +18,8 @@ import 'record_form.dart';
 // A1 record list, B2 quick input and B1 notification inbox: the Transaksi tab, after the
 // "E · Transaksi" and "Geser + snackbar" artboards of the Cashflow UI/UX canvas.
 
+/// A record of the account in parameter ?[n] (null: any account), on either side of a transfer.
+String ofAccount(int n) => '(?$n IS NULL OR r.account_id = ?$n OR r.transfer_account_id = ?$n)';
 
 class RecordsTab extends StatefulWidget {
   const RecordsTab({super.key});
@@ -38,26 +40,28 @@ class _RecordsTabState extends State<RecordsTab> {
     LEFT JOIN categories c ON c.id = r.category_id''';
 
   // ponytail: newest 500 only; add paging when a user has more history than that.
-  static Stream<List<Map<String, dynamic>>> _latest() =>
-      db.watch('$_select ORDER BY julianday(r.occurred_at) DESC LIMIT 500');
+  static Stream<List<Map<String, dynamic>>> _latest(String? account) => db.watch(
+    '$_select WHERE ${ofAccount(1)} ORDER BY julianday(r.occurred_at) DESC LIMIT 500',
+    parameters: [account],
+  );
 
   /// A record's date inside a month, taking the month's start and end as parameters [from] and [to].
   static String _within(int from, int to) =>
       'julianday(r.occurred_at) >= julianday(?$from) AND julianday(r.occurred_at) < julianday(?$to)';
 
   /// Every record of [month], however many.
-  static Stream<List<Map<String, dynamic>>> _inMonth(DateTime month) {
+  static Stream<List<Map<String, dynamic>>> _inMonth(DateTime month, String? account) {
     final (start, end) = periodRange('month', month);
     return db.watch(
-      '$_select WHERE ${_within(1, 2)} ORDER BY julianday(r.occurred_at) DESC',
-      parameters: [utcIso(start), utcIso(end)],
+      '$_select WHERE ${_within(1, 2)} AND ${ofAccount(3)} ORDER BY julianday(r.occurred_at) DESC',
+      parameters: [utcIso(start), utcIso(end), account],
     );
   }
 
   /// Every record, however old (only those of [month] when given), whose note, category, account, label,
   /// receipt line or amount holds [text].
   /// ponytail: % and _ typed in the search act as LIKE wildcards; escape them if that ever bites.
-  static Stream<List<Map<String, dynamic>>> _matching(String text, DateTime? month) {
+  static Stream<List<Map<String, dynamic>>> _matching(String text, DateTime? month, String? account) {
     final digits = text.replaceAll(RegExp(r'[^0-9]'), '');
     final range = month == null ? null : periodRange('month', month);
     return db.watch(
@@ -69,35 +73,60 @@ class _RecordsTabState extends State<RecordsTab> {
           WHERE lower('#' || l.name) LIKE ?1)
         OR EXISTS (SELECT 1 FROM json_each(r.items) i WHERE lower(json_extract(i.value, '\$.name')) LIKE ?1)
         OR (?2 != '' AND CAST(r.amount / 100 AS TEXT) LIKE '%' || ?2 || '%'))
-        ${range == null ? '' : 'AND ${_within(3, 4)}'}
+        AND ${ofAccount(3)}
+        ${range == null ? '' : 'AND ${_within(4, 5)}'}
       ORDER BY julianday(r.occurred_at) DESC LIMIT $_searchLimit''',
       parameters: [
         '%${text.toLowerCase()}%',
         digits,
+        account,
         if (range != null) ...[utcIso(range.$1), utcIso(range.$2)],
       ],
     );
   }
 
-  /// The rows for a picked [month] (null: none picked) and a search [text] (empty: not searching).
-  static Stream<List<Map<String, dynamic>>> _watch(DateTime? month, String text) => text.isNotEmpty
-      ? _matching(text, month)
+  /// The rows for a picked [month] (null: none picked), a search [text] (empty: not searching) and an
+  /// [account] id (null: every account).
+  static Stream<List<Map<String, dynamic>>> _watch(DateTime? month, String text, String? account) =>
+      text.isNotEmpty
+      ? _matching(text, month, account)
       : month == null
-      ? _latest()
-      : _inMonth(month);
+      ? _latest(account)
+      : _inMonth(month, account);
 
   static const _searchLimit = 300;
+  static const _allAccounts = ''; // chooseOne hands back null for a dismissed sheet, so "all" needs its own value
 
   String? _type; // filter; null shows every type
   DateTime? _month; // filter: the first day of the picked month; null shows every month, newest first
+  String? _accountId; // filter: null shows every account
+  List<Map<String, dynamic>> _accounts = const [];
+  StreamSubscription<List<Map<String, dynamic>>>? _accountsSub;
   bool _searching = false;
   String _query = '';
-  late Stream<List<Map<String, dynamic>>> _rows = _latest(); // a new watch per State: one listener each
+  late Stream<List<Map<String, dynamic>>> _rows = _latest(null); // a new watch per State: one listener each
   Timer? _debounce;
   final _search = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    _accountsSub = db.watch('SELECT id, name FROM accounts WHERE archived = 0 ORDER BY name COLLATE NOCASE').listen((rows) {
+      if (!mounted) return;
+      setState(() {
+        _accounts = rows;
+        // The picked account was archived or deleted: back to every account.
+        if (_accountId != null && !rows.any((a) => a['id'] == _accountId)) {
+          _accountId = null;
+          _rows = _watch(_month, _query, null);
+        }
+      });
+    });
+  }
+
+  @override
   void dispose() {
+    _accountsSub?.cancel();
     _debounce?.cancel();
     _search.dispose();
     super.dispose();
@@ -111,7 +140,7 @@ class _RecordsTabState extends State<RecordsTab> {
       if (!mounted || q == _query) return;
       setState(() {
         _query = q;
-        _rows = _watch(_month, q);
+        _rows = _watch(_month, q, _accountId);
       });
     });
   }
@@ -122,13 +151,13 @@ class _RecordsTabState extends State<RecordsTab> {
     setState(() {
       _searching = false;
       _query = '';
-      _rows = _watch(_month, '');
+      _rows = _watch(_month, '', _accountId);
     });
   }
 
   void _setMonth(DateTime? month) => setState(() {
     _month = month;
-    _rows = _watch(month, _query);
+    _rows = _watch(month, _query, _accountId);
   });
 
   Future<void> _pickMonth() async {
@@ -136,12 +165,27 @@ class _RecordsTabState extends State<RecordsTab> {
     if (picked != null) _setMonth(picked);
   }
 
+  Future<void> _pickAccount() async {
+    final picked = await chooseOne<String>(context, 'Pilih akun', [
+      (_allAccounts, 'Semua akun', null),
+      for (final a in _accounts) (a['id'] as String, a['name'] as String, null),
+    ], _accountId ?? _allAccounts);
+    if (picked == null || !mounted) return;
+    _setAccount(picked == _allAccounts ? null : picked);
+  }
+
+  void _setAccount(String? id) => setState(() {
+    _accountId = id;
+    _rows = _watch(_month, _query, id);
+  });
+
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     const pill = OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(23)), borderSide: BorderSide.none);
     final month = _month;
     final inMonth = month == null ? '' : ' di ${DateFormat('MMMM yyyy', 'id_ID').format(month)}';
+    final accountName = _accounts.where((a) => a['id'] == _accountId).map((a) => a['name'] as String).firstOrNull;
     return PopScope(
       // Back closes the search first, then leaves as usual.
       canPop: !_searching,
@@ -183,6 +227,15 @@ class _RecordsTabState extends State<RecordsTab> {
                       : Row(
                           children: [
                             Expanded(child: Text('Transaksi', style: AppText.title)),
+                            if (_accounts.length > 1) ...[
+                              IconButton(
+                                tooltip: 'Pilih akun',
+                                onPressed: _pickAccount,
+                                style: IconButton.styleFrom(backgroundColor: c.surface, fixedSize: const Size.square(46)),
+                                icon: Icon(Icons.account_balance_wallet_outlined, size: 20, color: c.ink),
+                              ),
+                              const SizedBox(width: AppSpace.tight),
+                            ],
                             IconButton(
                               tooltip: 'Pilih bulan',
                               onPressed: _pickMonth,
@@ -202,21 +255,45 @@ class _RecordsTabState extends State<RecordsTab> {
                 ),
                 const SizedBox(height: 16),
                 if (!_searching) ...[const QuickInputBar(), const SizedBox(height: 16)],
+                // The active account and month filters, picked from the header buttons, above the type chips.
+                if (month != null || accountName != null) ...[
+                  Wrap(
+                    spacing: AppSpace.tight,
+                    runSpacing: AppSpace.tight,
+                    children: [
+                      if (accountName != null)
+                        InputChip(
+                          label: ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.5),
+                            child: Text(accountName, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false),
+                          ),
+                          selected: true,
+                          showCheckmark: false,
+                          labelStyle: AppText.label.copyWith(fontSize: 14, color: c.onPrimary, fontWeight: FontWeight.w500),
+                          deleteIconColor: c.onPrimary,
+                          deleteButtonTooltipMessage: 'Hapus filter akun',
+                          onPressed: _pickAccount,
+                          onDeleted: () => _setAccount(null),
+                        ),
+                      if (month case final m?)
+                        InputChip(
+                          label: Text(DateFormat('MMMM yyyy', 'id_ID').format(m)),
+                          selected: true,
+                          showCheckmark: false,
+                          labelStyle: AppText.label.copyWith(fontSize: 14, color: c.onPrimary, fontWeight: FontWeight.w500),
+                          deleteIconColor: c.onPrimary,
+                          deleteButtonTooltipMessage: 'Hapus filter bulan',
+                          onPressed: _pickMonth,
+                          onDeleted: () => _setMonth(null),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpace.tight),
+                ],
                 Wrap(
                   spacing: AppSpace.tight,
                   runSpacing: AppSpace.tight,
                   children: [
-                    if (month case final m?)
-                      InputChip(
-                        label: Text(DateFormat('MMMM yyyy', 'id_ID').format(m)),
-                        selected: true,
-                        showCheckmark: false,
-                        labelStyle: AppText.label.copyWith(fontSize: 14, color: c.onPrimary, fontWeight: FontWeight.w500),
-                        deleteIconColor: c.onPrimary,
-                        deleteButtonTooltipMessage: 'Hapus filter bulan',
-                        onPressed: _pickMonth,
-                        onDeleted: () => _setMonth(null),
-                      ),
                     for (final (type, label) in const [
                       (null, 'Semua'),
                       ('expense', 'Keluar'),
@@ -255,7 +332,9 @@ class _RecordsTabState extends State<RecordsTab> {
                       _query.isNotEmpty
                           ? 'Tidak ada transaksi yang cocok dengan "$_query"$inMonth.'
                           : _type != null
-                          ? 'Tidak ada transaksi jenis ini$inMonth.'
+                          ? 'Tidak ada transaksi jenis ini${accountName == null ? '' : ' di $accountName'}$inMonth.'
+                          : accountName != null
+                          ? 'Tidak ada transaksi di $accountName$inMonth.'
                           : month != null
                           ? 'Tidak ada transaksi$inMonth.'
                           : 'Belum ada transaksi. Tekan + untuk mencatat.',
