@@ -192,6 +192,7 @@ class _WelcomePageState extends State<WelcomePage> with WidgetsBindingObserver {
   bool _notifications = false; // access is per phone, so it may already be on from an earlier account
   final _picked = <String>['cash']; // providers, in the order picked; a wallet almost everyone has
   final _balances = <String, TextEditingController>{};
+  final _focus = <String, FocusNode>{}; // per balance row, so a tap on the row types
 
   @override
   void initState() {
@@ -206,6 +207,9 @@ class _WelcomePageState extends State<WelcomePage> with WidgetsBindingObserver {
     _pages.dispose();
     for (final t in _balances.values) {
       t.dispose();
+    }
+    for (final f in _focus.values) {
+      f.dispose();
     }
     super.dispose();
   }
@@ -286,6 +290,7 @@ class _WelcomePageState extends State<WelcomePage> with WidgetsBindingObserver {
                 active: _page == 2,
                 picked: _picked,
                 balances: _balances,
+                focusNodes: _focus,
                 onToggle: (provider) => setState(
                   () => _picked.contains(provider) ? _picked.remove(provider) : _picked.add(provider),
                 ),
@@ -1067,6 +1072,7 @@ class _AccountsIntro extends StatelessWidget {
     required this.active,
     required this.picked,
     required this.balances,
+    required this.focusNodes,
     required this.onToggle,
     required this.onBack,
     required this.onSignUp,
@@ -1076,6 +1082,7 @@ class _AccountsIntro extends StatelessWidget {
   final bool active;
   final List<String> picked;
   final Map<String, TextEditingController> balances;
+  final Map<String, FocusNode> focusNodes;
   final ValueChanged<String> onToggle;
   final VoidCallback onBack;
   final VoidCallback onSignUp;
@@ -1087,6 +1094,13 @@ class _AccountsIntro extends StatelessWidget {
     ('Paylater', {'paylater'}),
   ];
 
+  static const _icons = {
+    'cash': Icons.payments_outlined,
+    'ewallet': Icons.account_balance_wallet_outlined,
+    'bank': Icons.account_balance_outlined,
+    'paylater': Icons.credit_card_outlined,
+  };
+
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
@@ -1097,73 +1111,94 @@ class _AccountsIntro extends StatelessWidget {
       child: Column(
         children: [
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 20),
+            child: Stack(
               children: [
-                _Header(3, onBack: onBack, onColor: false),
-                const SizedBox(height: 20),
-                _Entrance(
-                  active: active,
-                  child: Text(
-                    'Uangmu disimpan di mana saja?',
-                    style: AppText.title.copyWith(fontSize: 30, height: 1.12, letterSpacing: -0.5),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _Entrance(
-                  active: active,
-                  delay: const Duration(milliseconds: 120),
-                  child: Text(
-                    'Pilih semua yang kamu pakai. Bisa ditambah atau diubah nanti.',
-                    style: AppText.body.copyWith(height: 1.5, color: c.inkMuted),
-                  ),
-                ),
-                for (final (title, types) in _groups) ...[
-                  const SizedBox(height: 20),
-                  Text(title, style: AppText.label.copyWith(color: c.inkMuted)),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final p in accountPresets.where((p) => types.contains(p.type)))
-                        _Entrance(
-                          active: active,
-                          delay: Duration(milliseconds: 200 + 35 * order[p.provider]!),
-                          child: FilterChip(
-                            label: Text(p.name),
-                            selected: picked.contains(p.provider),
-                            onSelected: (_) {
-                              haptic(Haptic.tick);
-                              onToggle(p.provider);
-                            },
-                            checkmarkColor: c.onPrimary,
-                            labelStyle: AppText.label.copyWith(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: picked.contains(p.provider) ? c.onPrimary : c.ink,
+                ListView(
+                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+                  children: [
+                    _Header(3, onBack: onBack, onColor: false),
+                    const SizedBox(height: 20),
+                    _Entrance(
+                      active: active,
+                      child: Text(
+                        'Uangmu disimpan di mana saja?',
+                        style: AppText.title.copyWith(fontSize: 30, height: 1.12, letterSpacing: -0.5),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _Entrance(
+                      active: active,
+                      delay: const Duration(milliseconds: 120),
+                      child: Text(
+                        'Pilih semua yang kamu pakai. Bisa ditambah atau diubah nanti.',
+                        style: AppText.body.copyWith(height: 1.5, color: c.inkMuted),
+                      ),
+                    ),
+                    for (final (title, types) in _groups) ...[
+                      const SizedBox(height: AppSpace.section),
+                      _label(c, title),
+                      Wrap(
+                        spacing: AppSpace.tight,
+                        runSpacing: AppSpace.tight,
+                        children: [
+                          for (final p in accountPresets.where((p) => types.contains(p.type)))
+                            _Entrance(
+                              active: active,
+                              delay: Duration(milliseconds: 200 + 35 * order[p.provider]!),
+                              child: FilterChip(
+                                label: Text(p.name),
+                                selected: picked.contains(p.provider),
+                                onSelected: (_) {
+                                  haptic(Haptic.tick);
+                                  onToggle(p.provider);
+                                },
+                                checkmarkColor: c.onPrimary,
+                                labelStyle: AppText.label.copyWith(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: picked.contains(p.provider) ? c.onPrimary : c.ink,
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
+                        ],
+                      ),
                     ],
+                    // The balance rows grow and shrink with the picks instead of jumping. AnimatedSize
+                    // asserts on a zero duration, so with animations removed the rows simply appear.
+                    if (MediaQuery.disableAnimationsOf(context))
+                      if (picked.isNotEmpty) _balanceRows(c, presets) else const SizedBox.shrink()
+                    else
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 260),
+                        curve: Curves.easeOutCubic,
+                        alignment: Alignment.topCenter,
+                        child: picked.isEmpty ? const SizedBox(width: double.infinity) : _balanceRows(c, presets),
+                      ),
+                  ],
+                ),
+                // A soft edge above the footer: the picks and balances go on below it.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 24,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [c.bg.withValues(alpha: 0), c.bg],
+                        ),
+                      ),
+                    ),
                   ),
-                ],
-                // The balance rows grow and shrink with the picks instead of jumping. AnimatedSize
-                // asserts on a zero duration, so with animations removed the rows simply appear.
-                if (MediaQuery.disableAnimationsOf(context))
-                  if (picked.isNotEmpty) _balanceRows(c, presets) else const SizedBox.shrink()
-                else
-                  AnimatedSize(
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOutCubic,
-                    alignment: Alignment.topCenter,
-                    child: picked.isEmpty ? const SizedBox(width: double.infinity) : _balanceRows(c, presets),
-                  ),
+                ),
               ],
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1190,66 +1225,35 @@ class _AccountsIntro extends StatelessWidget {
     );
   }
 
+  /// A group's small heading, flush with the chips under it.
+  static Widget _label(AppColors c, String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Text(text, style: AppText.label.copyWith(color: c.inkMuted)),
+  );
+
+  /// The picked accounts as form rows, like Akun baru: a tap anywhere on a row types its balance.
   Widget _balanceRows(AppColors c, Map<String, ({String provider, String name, String type})> presets) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      const SizedBox(height: 20),
-      Text('Saldo sekarang (opsional)', style: AppText.label.copyWith(color: c.inkMuted)),
-      const SizedBox(height: 10),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(AppRadius.card)),
-        child: Column(
-          children: [
-            for (final (i, provider) in picked.indexed) ...[
-              if (i > 0) const Divider(),
-              ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 60),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(presets[provider]!.name, style: AppText.body.copyWith(fontWeight: FontWeight.w500)),
-                          if (presets[provider]!.type == 'paylater')
-                            Text('sisa tagihan', style: AppText.caption.copyWith(color: c.inkMuted)),
-                        ],
-                      ),
-                    ),
-                    Text('Rp', style: AppText.label.copyWith(fontSize: 14, color: c.inkMuted)),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 130,
-                      child: TextField(
-                        controller: balances.putIfAbsent(provider, TextEditingController.new),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        inputFormatters: const [AmountInputFormatter()],
-                        textAlign: TextAlign.right,
-                        style: AppText.body.copyWith(fontWeight: FontWeight.w500),
-                        decoration: InputDecoration(
-                          hintText: '0',
-                          fillColor: c.bg,
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+      const SizedBox(height: AppSpace.section),
+      _label(c, 'Saldo sekarang (opsional)'),
+      FormCard(
+        children: [
+          for (final provider in picked)
+            FormRow(
+              key: ValueKey(provider),
+              icon: _icons[presets[provider]!.type] ?? Icons.account_balance_wallet_outlined,
+              // Paylater is what is still owed; _signUp stores it below zero.
+              label: presets[provider]!.type == 'paylater'
+                  ? '${presets[provider]!.name} · sisa tagihan'
+                  : presets[provider]!.name,
+              focusNode: focusNodes.putIfAbsent(provider, FocusNode.new),
+              child: MoneyField(
+                controller: balances.putIfAbsent(provider, TextEditingController.new),
+                focusNode: focusNodes.putIfAbsent(provider, FocusNode.new),
               ),
-            ],
-          ],
-        ),
+            ),
+        ],
       ),
     ],
   );
