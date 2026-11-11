@@ -469,8 +469,10 @@ class _Illustration extends StatefulWidget {
 }
 
 class _IllustrationState extends State<_Illustration> with SingleTickerProviderStateMixin, _DemoClock {
+  static const _start = 845000000; // Rp 8.450.000 in cents
   int _demo = 0;
-  int _balance = 845000000; // Rp 8.450.000 in cents, before the current line lands
+  int _balance = _start; // before the current line lands
+  int _round = 0; // each pass through the three lines starts from the same balance
 
   @override
   bool get active => widget.active;
@@ -487,6 +489,12 @@ class _IllustrationState extends State<_Illustration> with SingleTickerProviderS
         setState(() {
           _balance += _demos[_demo].delta;
           _demo = (_demo + 1) % _demos.length;
+          // Back to the first line: the balance starts over rather than climbing for good. It snaps
+          // back while the card is quiet, between the last record fading and the next line typing.
+          if (_demo == 0) {
+            _balance = _start;
+            _round++;
+          }
         });
         clock.forward(from: 0);
       });
@@ -509,12 +517,19 @@ class _IllustrationState extends State<_Illustration> with SingleTickerProviderS
   Widget _frame(BuildContext context, double s) {
     final c = AppColors.of(context);
     final demo = _demos[_demo];
-    final typed = (_seg(s, 0.3, 0.3 + demo.line.length * 0.045) * demo.line.length).round();
-    final landed = s >= 1.5;
+    final typedEnd = 0.3 + demo.line.length * 0.045;
+    // Typed in, then cleared back out once the record has shown, so the field ends empty and ready.
+    final typed = ((_seg(s, 0.3, typedEnd) - _seg(s, 4.4, 4.75)) * demo.line.length).round();
+    final done = typed == demo.line.length && s < 4.4;
+    // The line is sent with the sparkle, as in Catat cepat: it shows when typing ends and is pressed
+    // just before the record lands.
+    final sparkle = Curves.easeOutCubic.transform(_seg(s, typedEnd, typedEnd + 0.2));
+    final press = 1 - 0.18 * (1 - ((s - 1.55).abs() / 0.12).clamp(0.0, 1.0));
+    final landed = s >= 1.7;
     final fadeOut = 1 - _seg(s, 4.4, 4.8);
-    final rise = Curves.easeOutCubic.transform(_seg(s, 1.5, 1.9));
+    final rise = Curves.easeOutCubic.transform(_seg(s, 1.7, 2.1));
     // The caret blinks while waiting for the next line and stays solid while typing.
-    final caret = !landed && (typed > 0 || (s * 2.5).floor().isEven);
+    final caret = !done && (typed > 0 && s < 4.4 || (s * 2.5).floor().isEven);
     Widget card(Color color, double angle, Offset shift, {Widget? child, bool shadow = false}) => Center(
       child: Transform.translate(
         offset: shift,
@@ -571,6 +586,7 @@ class _IllustrationState extends State<_Illustration> with SingleTickerProviderS
                     Text('Rp', style: AppText.body.copyWith(color: c.onHeroMuted)),
                     const SizedBox(width: 6),
                     CountUp(
+                      key: ValueKey(_round), // a new round shows its first balance at once
                       landed ? _balance + demo.delta : _balance,
                       builder: (v) => Text(
                         _digits.format(v ~/ 100),
@@ -604,19 +620,27 @@ class _IllustrationState extends State<_Illustration> with SingleTickerProviderS
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: bubble,
-            child: Opacity(
-              opacity: fadeOut,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(demo.line.substring(0, typed), style: AppText.label.copyWith(fontSize: 14, color: c.ink)),
-                  // Kept in the layout when hidden, so the bubble does not twitch as it blinks.
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(demo.line.substring(0, typed), style: AppText.label.copyWith(fontSize: 14, color: c.ink)),
+                // Kept in the layout when hidden, so the bubble does not twitch as it blinks.
+                Opacity(
+                  opacity: caret ? 1 : 0,
+                  child: Container(width: 2, height: 18, margin: const EdgeInsets.only(left: 1), color: c.primary),
+                ),
+                if (done)
                   Opacity(
-                    opacity: caret ? 1 : 0,
-                    child: Container(width: 2, height: 18, margin: const EdgeInsets.only(left: 1), color: c.primary),
+                    opacity: sparkle,
+                    child: Transform.scale(
+                      scale: (0.6 + 0.4 * sparkle) * press,
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Icon(Icons.auto_awesome, size: 18, color: c.primary),
+                      ),
+                    ),
                   ),
-                ],
-              ),
+              ],
             ),
           ),
         ),
