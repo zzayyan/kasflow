@@ -900,23 +900,6 @@ class _NotificationIntro extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    Widget point(IconData icon, String text) => Padding(
-      padding: const EdgeInsets.only(bottom: AppSpace.gap),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(color: c.surface, shape: BoxShape.circle),
-            child: Icon(icon, size: 18, color: c.primary),
-          ),
-          const SizedBox(width: AppSpace.gap),
-          Expanded(
-            child: Text(text, style: AppText.label.copyWith(fontSize: 14, height: 1.4, color: c.ink)),
-          ),
-        ],
-      ),
-    );
     final button = FilledButton.styleFrom(
       minimumSize: const Size.fromHeight(58),
       textStyle: AppText.button.copyWith(fontSize: 17),
@@ -953,14 +936,47 @@ class _NotificationIntro extends StatelessWidget {
         ),
       ),
     );
+    final enabledStep = AnimatedSwitcher(
+      duration: motion(context, const Duration(milliseconds: 250)),
+      child: enabled
+          ? step(
+              null,
+              const Text('Cashflow sudah boleh membaca notifikasi'),
+              key: const ValueKey('on'),
+              trailing: TextButton(
+                onPressed: openNotificationAccessSettings,
+                style: TextButton.styleFrom(
+                  textStyle: AppText.label.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                child: const Text('Atur'),
+              ),
+            )
+          : step(
+              1,
+              const Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(text: 'Nyalakan '),
+                    TextSpan(text: 'Cashflow', style: TextStyle(fontWeight: FontWeight.w600)),
+                    TextSpan(text: ' di daftar Akses notifikasi, lalu kembali ke sini'),
+                  ],
+                ),
+              ),
+              key: const ValueKey('off'),
+            ),
+    );
+    // One screen, like page 1: the steps sit right under the demo and the button at the foot. A large
+    // system font that no longer fits scrolls instead of overflowing.
     return SafeArea(
-      child: Column(
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                ListView(
-                  padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+      child: LayoutBuilder(
+        builder: (context, box) => SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: box.maxHeight),
+            child: IntrinsicHeight(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _Header(2, onBack: onBack, onSkip: onNext, onColor: false),
                     const SizedBox(height: 20),
@@ -983,103 +999,40 @@ class _NotificationIntro extends StatelessWidget {
                     ),
                     const SizedBox(height: 22),
                     ExcludeSemantics(child: _NotificationDemo(active: active)),
-                    const SizedBox(height: 26),
-                    // The steps scroll with the page, right under the demo, so the fixed footer stays
-                    // small and covers nothing. Two things must be on; only the first is Cashflow's to ask.
+                    const SizedBox(height: 24),
+                    // Two things must be on, and only the first is Cashflow's to ask for: Android lets it
+                    // read what other apps post, and the bank apps must post something to read.
                     Text('Cara mengaktifkan', style: AppText.bodyStrong),
                     const SizedBox(height: AppSpace.gap),
                     // The page stays while Android's settings are open and step 1 turns to done on the
                     // way back, so the user sees that it worked before moving on.
+                    enabledStep,
+                    step(2, const Text('Pastikan notifikasi transaksi di aplikasi bank dan $_eWallet-mu aktif')),
+                    const Spacer(),
+                    const SizedBox(height: AppSpace.section),
                     AnimatedSwitcher(
                       duration: motion(context, const Duration(milliseconds: 250)),
                       child: enabled
-                          ? step(
-                              null,
-                              const Text('Cashflow sudah boleh membaca notifikasi'),
-                              key: const ValueKey('on'),
-                              trailing: TextButton(
-                                onPressed: openNotificationAccessSettings,
-                                style: TextButton.styleFrom(
-                                  textStyle: AppText.label.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
-                                ),
-                                child: const Text('Atur'),
-                              ),
+                          ? FilledButton(
+                              key: const ValueKey('next'),
+                              onPressed: onNext,
+                              style: button,
+                              child: const Text('Lanjut'),
                             )
-                          : step(
-                              1,
-                              const Text.rich(
-                                TextSpan(
-                                  children: [
-                                    TextSpan(text: 'Nyalakan '),
-                                    TextSpan(text: 'Cashflow', style: TextStyle(fontWeight: FontWeight.w600)),
-                                    TextSpan(text: ' di daftar Akses notifikasi, lalu kembali ke sini'),
-                                  ],
-                                ),
-                              ),
-                              key: const ValueKey('off'),
+                          : FilledButton(
+                              key: const ValueKey('allow'),
+                              onPressed: openNotificationAccessSettings,
+                              style: button,
+                              child: const Text('Izinkan akses notifikasi'),
                             ),
                     ),
-                    step(2, const Text('Pastikan notifikasi transaksi di aplikasi bank dan $_eWallet-mu aktif')),
-                    const SizedBox(height: 22),
-                    point(Icons.account_balance_outlined, 'Yang dibaca hanya notifikasi bank dan $_eWallet'),
-                    // Notification access lets Cashflow read what other apps post; nothing is read when
-                    // the bank app posts nothing, which Cashflow cannot turn on itself.
-                    point(
-                      Icons.notifications_active_outlined,
-                      'Hanya bekerja kalau aplikasi bank dan $_eWallet-mu mengirim notifikasi transaksi',
-                    ),
-                    // The text goes to Gemini (parse-transaction) after redact() in notifications.dart.
-                    point(Icons.lock_outline, 'Nama, email, dan nomor rekening dihapus di HP sebelum AI membacanya'),
-                    point(Icons.fact_check_outlined, 'Tidak ada yang tersimpan sebelum kamu cek'),
+                    _LoginLink(onTap: onLogin, color: c.primary, muted: c.inkMuted),
                   ],
                 ),
-                // A soft edge above the footer: the list goes on below it rather than being cut off.
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: 24,
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [c.bg.withValues(alpha: 0), c.bg],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                AnimatedSwitcher(
-                  duration: motion(context, const Duration(milliseconds: 250)),
-                  child: enabled
-                      ? FilledButton(
-                          key: const ValueKey('next'),
-                          onPressed: onNext,
-                          style: button,
-                          child: const Text('Lanjut'),
-                        )
-                      : FilledButton(
-                          key: const ValueKey('allow'),
-                          onPressed: openNotificationAccessSettings,
-                          style: button,
-                          child: const Text('Izinkan akses notifikasi'),
-                        ),
-                ),
-                _LoginLink(onTap: onLogin, color: c.primary, muted: c.inkMuted),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

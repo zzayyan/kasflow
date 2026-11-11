@@ -40,14 +40,9 @@ void main() {
       await tester.drag(find.byType(PageView), const Offset(-300, 0)); // swipe to page 2
       await tester.pumpAndSettle();
       expect(find.text('Catat otomatis dari notifikasi bank'), findsOneWidget);
-      // Access off here: both steps show, the first asking for Cashflow's access. They sit below the
-      // demo, so scroll to them.
-      await tester.drag(find.text('Catat otomatis dari notifikasi bank'), const Offset(0, -400));
-      await tester.pumpAndSettle();
+      // Access off here: both steps show on the one screen, the first asking for Cashflow's access.
       expect(find.textContaining('di daftar Akses notifikasi'), findsOneWidget);
       expect(find.textContaining('Pastikan notifikasi transaksi'), findsOneWidget);
-      await tester.drag(find.textContaining('Pastikan notifikasi transaksi'), const Offset(0, 400)); // back up
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Lewati'));
       await tester.pumpAndSettle();
       expect(find.text('Daftar, 1 akun'), findsOneWidget);
