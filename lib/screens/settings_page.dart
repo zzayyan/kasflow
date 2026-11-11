@@ -199,7 +199,7 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                         _notifications! ? 'Aktif' : 'Nonaktif',
                         style: AppText.caption.copyWith(
                           fontWeight: FontWeight.w600,
-                          color: _notifications! ? c.primary : c.inkMuted,
+                          color: _notifications! ? c.primary : c.ink, // inkMuted is 4.4:1 on surfaceMuted
                         ),
                       ),
                     ),

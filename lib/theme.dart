@@ -423,13 +423,15 @@ ThemeData buildAppTheme(Brightness brightness) {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       labelStyle: AppText.label.copyWith(color: c.inkMuted),
       hintStyle: AppText.body.copyWith(color: c.inkMuted),
+      // A field's edge is its only outline on a card or dialog of the same color, so it needs 3:1;
+      // outline is about 1.5:1.
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadius.input),
-        borderSide: BorderSide(color: c.outline),
+        borderSide: BorderSide(color: c.inkMuted),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadius.input),
-        borderSide: BorderSide(color: c.outline),
+        borderSide: BorderSide(color: c.inkMuted),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadius.input),
@@ -466,7 +468,8 @@ ThemeData buildAppTheme(Brightness brightness) {
     ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (states) => states.contains(WidgetState.selected) ? c.onPrimary : c.surface,
+        // Off, a dark thumb on the light track shows the state; a light thumb all but vanished.
+        (states) => states.contains(WidgetState.selected) ? c.onPrimary : c.inkMuted,
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected) ? c.primary : c.outline,

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:logging/logging.dart';
@@ -999,7 +1000,7 @@ class _LinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_LinePainter old) => old.values != values || old.line != line;
+  bool shouldRepaint(_LinePainter old) => !listEquals(old.values, values) || old.line != line;
 }
 
 class _Pending extends StatelessWidget {
