@@ -8,11 +8,20 @@ import 'package:flutter_test/flutter_test.dart';
 // The signed-out screens can't be opened on a signed-in phone, so they are built here at the
 // design's phone size, light and dark. Overflow or a build error fails the test.
 
-Future<void> _pump(WidgetTester tester, Widget page, Brightness brightness) async {
+/// With [animate] off, as with Android's "remove animations", the intro's looping demos stand still,
+/// so pumpAndSettle can settle.
+Future<void> _pump(WidgetTester tester, Widget page, Brightness brightness, {bool animate = false}) async {
   tester.view.physicalSize = const Size(390, 844);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(MaterialApp(theme: buildAppTheme(brightness), home: page));
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildAppTheme(brightness),
+      builder: (context, child) =>
+          MediaQuery(data: MediaQuery.of(context).copyWith(disableAnimations: !animate), child: child!),
+      home: page,
+    ),
+  );
   await tester.pump();
 }
 
@@ -37,6 +46,23 @@ void main() {
       await tester.tap(find.text('GoPay'));
       await tester.pump();
       expect(find.text('Daftar, 2 akun'), findsOneWidget);
+    });
+
+    testWidgets('Intro demos play through their loops ($brightness)', (tester) async {
+      await _pump(tester, const WelcomePage(), brightness, animate: true);
+      // Page 1 types three lines, one every five seconds, and the balance follows. By 20 s the first
+      // line is fully typed again.
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      expect(find.text('kopi 18rb pakai gopay'), findsOneWidget); // back to the first line
+      await tester.tap(find.text('Mulai'));
+      // Page 2's record is checked from 2.8 s into its loop.
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      expect(find.textContaining('kamu cek, tersimpan'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox()); // stops the loops before the test ends
     });
 
     testWidgets('Lewati on the first page lands on the accounts page ($brightness)', (tester) async {

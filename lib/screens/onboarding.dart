@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import '../db.dart';
 import '../money.dart';
@@ -20,6 +21,102 @@ const _accent = Color(0xFFA9D2B2);
 const _track = Color(0xFF3C6B54);
 const _deepCard = Color(0xFF163828);
 const _pageDuration = Duration(milliseconds: 350);
+
+/// 0..1 of the way from [from] to [to] seconds at [s] seconds; the demos below are timed this way.
+double _seg(double s, double from, double to) => ((s - from) / (to - from)).clamp(0.0, 1.0);
+
+/// Fades [child] in and lifts it 12 px, once, the first time [active] is true. With Android's
+/// "remove animations" on, it is there from the start.
+class _Entrance extends StatefulWidget {
+  const _Entrance({required this.active, this.delay = Duration.zero, required this.child});
+
+  final bool active;
+  final Duration delay;
+  final Widget child;
+
+  @override
+  State<_Entrance> createState() => _EntranceState();
+}
+
+class _EntranceState extends State<_Entrance> with SingleTickerProviderStateMixin {
+  static const _rise = Duration(milliseconds: 450);
+  late final _clock = AnimationController(vsync: this, duration: widget.delay + _rise);
+  late final _curve = CurvedAnimation(
+    parent: _clock,
+    curve: Interval(widget.delay.inMilliseconds / (widget.delay + _rise).inMilliseconds, 1, curve: Curves.easeOutCubic),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _start();
+  }
+
+  @override
+  void didUpdateWidget(_Entrance old) {
+    super.didUpdateWidget(old);
+    _start();
+  }
+
+  void _start() {
+    if (!widget.active || _clock.status != AnimationStatus.dismissed) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _clock.value = 1;
+    } else {
+      _clock.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    _clock.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _curve,
+    child: widget.child,
+    builder: (context, child) => Opacity(
+      opacity: _curve.value,
+      child: Transform.translate(offset: Offset(0, 12 * (1 - _curve.value)), child: child),
+    ),
+  );
+}
+
+/// Runs a looping demo's clock only while its page is on screen, and never with animations removed.
+mixin _DemoClock<T extends StatefulWidget> on State<T>, SingleTickerProviderStateMixin<T> {
+  late final AnimationController clock;
+  bool get active;
+
+  /// The frame shown when animations are removed, in seconds into the loop.
+  double get stillAt;
+
+  /// Seconds into the loop for this frame.
+  double get seconds =>
+      MediaQuery.disableAnimationsOf(context) ? stillAt : clock.value * clock.duration!.inMilliseconds / 1000;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    syncClock();
+  }
+
+  void syncClock() {
+    final run = active && !MediaQuery.disableAnimationsOf(context);
+    if (run && !clock.isAnimating) startClock();
+    if (!run && clock.isAnimating) clock.stop();
+  }
+
+  void startClock();
+
+  @override
+  void dispose() {
+    clock.dispose();
+    super.dispose();
+  }
+}
 
 /// An account picked during the intro: a preset provider and its balance in cents.
 typedef StarterAccount = ({String provider, int balance});
@@ -121,15 +218,16 @@ class _WelcomePageState extends State<WelcomePage> with WidgetsBindingObserver {
     if (mounted && enabled != _notifications) setState(() => _notifications = enabled);
   }
 
-  void _go(int page) => _pages.animateToPage(
-    page,
-    duration: motion(context, _pageDuration),
-    curve: Curves.easeOutCubic,
-  );
+  // A zero-length page animation trips an assert, so with animations removed the page jumps.
+  void _go(int page) => MediaQuery.disableAnimationsOf(context)
+      ? _pages.jumpToPage(page)
+      : unawaited(_pages.animateToPage(page, duration: _pageDuration, curve: Curves.easeOutCubic));
 
   void _login({required bool signUp, List<StarterAccount> accounts = const []}) => Navigator.push(
     context,
-    MaterialPageRoute<void>(builder: (_) => LoginPage(signUp: signUp, starterAccounts: accounts)),
+    MaterialPageRoute<void>(
+      builder: (_) => LoginPage(signUp: signUp, starterAccounts: accounts),
+    ),
   );
 
   void _signUp() {
@@ -166,14 +264,21 @@ class _WelcomePageState extends State<WelcomePage> with WidgetsBindingObserver {
             onPageChanged: (page) => setState(() => _page = page),
             children: [
               // Lewati goes straight to the accounts page: the notification pitch can wait.
-              _WelcomeIntro(onNext: () => _go(1), onSkip: () => _go(2), onLogin: () => _login(signUp: false)),
+              _WelcomeIntro(
+                active: _page == 0,
+                onNext: () => _go(1),
+                onSkip: () => _go(2),
+                onLogin: () => _login(signUp: false),
+              ),
               _NotificationIntro(
+                active: _page == 1,
                 enabled: _notifications,
                 onBack: () => _go(0),
                 onNext: () => _go(2),
                 onLogin: () => _login(signUp: false),
               ),
               _AccountsIntro(
+                active: _page == 2,
                 picked: _picked,
                 balances: _balances,
                 onToggle: (provider) => setState(
@@ -266,8 +371,9 @@ class _Header extends StatelessWidget {
 }
 
 class _WelcomeIntro extends StatelessWidget {
-  const _WelcomeIntro({required this.onNext, required this.onSkip, required this.onLogin});
+  const _WelcomeIntro({required this.active, required this.onNext, required this.onSkip, required this.onLogin});
 
+  final bool active;
   final VoidCallback onNext;
   final VoidCallback onSkip;
   final VoidCallback onLogin;
@@ -286,21 +392,33 @@ class _WelcomeIntro extends StatelessWidget {
             children: [
               _Header(1, onSkip: onSkip, onColor: true),
               const SizedBox(height: 20),
-              Text.rich(
-                const TextSpan(
-                  children: [
-                    TextSpan(text: 'Catat sekali,\n'),
-                    TextSpan(text: 'tahu ke mana uangmu pergi.', style: TextStyle(color: _accent)),
-                  ],
+              _Entrance(
+                active: active,
+                child: Text.rich(
+                  const TextSpan(
+                    children: [
+                      TextSpan(text: 'Catat sekali,\n'),
+                      TextSpan(
+                        text: 'tahu ke mana uangmu pergi.',
+                        style: TextStyle(color: _accent),
+                      ),
+                    ],
+                  ),
+                  style: AppText.title.copyWith(fontSize: 40, height: 1.08, letterSpacing: -0.8, color: white),
                 ),
-                style: AppText.title.copyWith(fontSize: 40, height: 1.08, letterSpacing: -0.8, color: white),
               ),
               const SizedBox(height: 14),
-              Text(
-                'Cukup ketik satu kalimat, atau biarkan notifikasi bank yang mencatat. Tetap jalan tanpa internet.',
-                style: AppText.body.copyWith(fontSize: 16, height: 1.5, color: c.onHeroMuted),
+              _Entrance(
+                active: active,
+                delay: const Duration(milliseconds: 120),
+                child: Text(
+                  'Cukup ketik satu kalimat, atau biarkan notifikasi bank yang mencatat. Tetap jalan tanpa internet.',
+                  style: AppText.body.copyWith(fontSize: 16, height: 1.5, color: c.onHeroMuted),
+                ),
               ),
-              const Expanded(child: ExcludeSemantics(child: _Illustration())),
+              Expanded(
+                child: ExcludeSemantics(child: _Illustration(active: active)),
+              ),
               FilledButton(
                 onPressed: onNext,
                 style: FilledButton.styleFrom(
@@ -324,13 +442,74 @@ class _WelcomeIntro extends StatelessWidget {
   }
 }
 
-/// Three stacked cards with a quick-input line and the record it became, as drawn.
-class _Illustration extends StatelessWidget {
-  const _Illustration();
+/// What the first page's demo types, and the record each line becomes. Demo values only; the
+/// categories match the defaults every new user gets (supabase/migrations/0001_init.sql).
+const _demos = [
+  (line: 'kopi 18rb pakai gopay', category: 'Makan & Minum', delta: -1800000, account: 'GoPay'),
+  (line: 'bensin 30rb', category: 'Transportasi', delta: -3000000, account: 'Dompet'),
+  (line: 'gaji masuk bca 5jt', category: 'Gaji', delta: 500000000, account: 'BCA'),
+];
+
+final _digits = NumberFormat.decimalPattern('id_ID');
+
+/// Three stacked cards, as drawn, playing the product: a line is typed, becomes a record, and the
+/// balance moves. One line every five seconds, while the page is on screen.
+class _Illustration extends StatefulWidget {
+  const _Illustration({required this.active});
+
+  final bool active;
 
   @override
-  Widget build(BuildContext context) {
+  State<_Illustration> createState() => _IllustrationState();
+}
+
+class _IllustrationState extends State<_Illustration> with SingleTickerProviderStateMixin, _DemoClock {
+  int _demo = 0;
+  int _balance = 845000000; // Rp 8.450.000 in cents, before the current line lands
+
+  @override
+  bool get active => widget.active;
+
+  @override
+  double get stillAt => 3; // the record landed, the balance moved
+
+  @override
+  void initState() {
+    super.initState();
+    clock = AnimationController(vsync: this, duration: const Duration(seconds: 5))
+      ..addStatusListener((status) {
+        if (status != AnimationStatus.completed) return;
+        setState(() {
+          _balance += _demos[_demo].delta;
+          _demo = (_demo + 1) % _demos.length;
+        });
+        clock.forward(from: 0);
+      });
+  }
+
+  @override
+  void didUpdateWidget(_Illustration old) {
+    super.didUpdateWidget(old);
+    syncClock();
+  }
+
+  @override
+  void startClock() => clock.forward();
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: AnimatedBuilder(animation: clock, builder: (context, _) => _frame(context, seconds)),
+  );
+
+  Widget _frame(BuildContext context, double s) {
     final c = AppColors.of(context);
+    final demo = _demos[_demo];
+    final typed = (_seg(s, 0.3, 0.3 + demo.line.length * 0.045) * demo.line.length).round();
+    final landed = s >= 1.5;
+    final fadeOut = 1 - _seg(s, 4.4, 4.8);
+    final rise = Curves.easeOutCubic.transform(_seg(s, 1.5, 1.9));
+    // The caret blinks while waiting for the next line and stays solid while typing.
+    final caret = !landed && (typed > 0 || (s * 2.5).floor().isEven);
     Widget card(Color color, double angle, Offset shift, {Widget? child, bool shadow = false}) => Center(
       child: Transform.translate(
         offset: shift,
@@ -344,7 +523,13 @@ class _Illustration extends StatelessWidget {
               color: color,
               borderRadius: BorderRadius.circular(24),
               boxShadow: shadow
-                  ? [BoxShadow(color: Colors.black.withValues(alpha: 0.28), blurRadius: 40, offset: const Offset(0, 18))]
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.28),
+                        blurRadius: 40,
+                        offset: const Offset(0, 18),
+                      ),
+                    ]
                   : null,
             ),
             child: child,
@@ -380,7 +565,13 @@ class _Illustration extends StatelessWidget {
                   children: [
                     Text('Rp', style: AppText.body.copyWith(color: c.onHeroMuted)),
                     const SizedBox(width: 6),
-                    Text('8.450.000', style: AppText.amountLg.copyWith(fontSize: 30, height: 1, color: c.onHero)),
+                    CountUp(
+                      landed ? _balance + demo.delta : _balance,
+                      builder: (v) => Text(
+                        _digits.format(v ~/ 100),
+                        style: AppText.amountLg.copyWith(fontSize: 30, height: 1, color: c.onHero),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -408,32 +599,57 @@ class _Illustration extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: bubble,
-            child: Text('bakso 25rb pakai dana', style: AppText.label.copyWith(fontSize: 14, color: c.ink)),
+            child: Opacity(
+              opacity: fadeOut,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(demo.line.substring(0, typed), style: AppText.label.copyWith(fontSize: 14, color: c.ink)),
+                  // Kept in the layout when hidden, so the bubble does not twitch as it blinks.
+                  Opacity(
+                    opacity: caret ? 1 : 0,
+                    child: Container(width: 2, height: 18, margin: const EdgeInsets.only(left: 1), color: c.primary),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
         Positioned(
           right: 0,
           bottom: 16,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: bubble.copyWith(borderRadius: BorderRadius.circular(18)),
-            child: Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(color: c.hero, shape: BoxShape.circle),
-                  child: Icon(Icons.check, size: 16, color: c.onHero),
-                ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          child: Opacity(
+            opacity: rise * fadeOut,
+            child: Transform.translate(
+              offset: Offset(0, 12 * (1 - rise)),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: bubble.copyWith(borderRadius: BorderRadius.circular(18)),
+                child: Row(
                   children: [
-                    Text('Makan & Minum', style: AppText.label.copyWith(fontWeight: FontWeight.w600, color: c.ink)),
-                    Text('−Rp 25.000 · DANA', style: AppText.caption.copyWith(color: c.inkMuted)),
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(color: c.hero, shape: BoxShape.circle),
+                      child: Icon(Icons.check, size: 16, color: c.onHero),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          demo.category,
+                          style: AppText.label.copyWith(fontWeight: FontWeight.w600, color: c.ink),
+                        ),
+                        Text(
+                          '${demo.delta < 0 ? '−' : '+'}${formatAmount(demo.delta.abs())} · ${demo.account}',
+                          style: AppText.caption.copyWith(color: c.inkMuted),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -442,9 +658,173 @@ class _Illustration extends StatelessWidget {
   }
 }
 
-class _NotificationIntro extends StatelessWidget {
-  const _NotificationIntro({required this.enabled, required this.onBack, required this.onNext, required this.onLogin});
+/// The second page's demo, on a loop: a bank notification drops in, a record forms below it waiting
+/// to be checked, and is saved once checked.
+class _NotificationDemo extends StatefulWidget {
+  const _NotificationDemo({required this.active});
 
+  final bool active;
+
+  @override
+  State<_NotificationDemo> createState() => _NotificationDemoState();
+}
+
+class _NotificationDemoState extends State<_NotificationDemo> with SingleTickerProviderStateMixin, _DemoClock {
+  @override
+  bool get active => widget.active;
+
+  @override
+  double get stillAt => 2; // the record formed, still waiting to be checked
+
+  @override
+  void initState() {
+    super.initState();
+    clock = AnimationController(vsync: this, duration: const Duration(seconds: 5));
+  }
+
+  @override
+  void didUpdateWidget(_NotificationDemo old) {
+    super.didUpdateWidget(old);
+    syncClock();
+  }
+
+  @override
+  void startClock() => clock.repeat();
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: AnimatedBuilder(animation: clock, builder: (context, _) => _frame(context, seconds)),
+  );
+
+  Widget _frame(BuildContext context, double s) {
+    final c = AppColors.of(context);
+    final fadeOut = 1 - _seg(s, 4.5, 5);
+    final drop = Curves.easeOutCubic.transform(_seg(s, 0, 0.5));
+    final arrow = _seg(s, 0.6, 0.9);
+    final form = Curves.easeOutCubic.transform(_seg(s, 1, 1.5));
+    final checked = s >= 2.8;
+    // Opacity and offset only, so the card keeps its size through the loop.
+    Widget step(double t, double dy, Widget child) => Opacity(
+      opacity: t * fadeOut,
+      child: Transform.translate(offset: Offset(0, dy * (1 - t)), child: child),
+    );
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(color: c.primarySoft, borderRadius: BorderRadius.circular(26)),
+      child: Column(
+        children: [
+          step(
+            drop,
+            -16,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(18)),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: c.surfaceMuted, borderRadius: BorderRadius.circular(10)),
+                    child: Text('BCA', style: AppText.caption.copyWith(fontSize: 10, fontWeight: FontWeight.w700)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('BCA mobile · sekarang', style: AppText.label.copyWith(fontWeight: FontWeight.w600)),
+                        Text(
+                          'Transaksi debit Rp 150.000 QRIS ALFAMART KUNINGAN berhasil',
+                          style: AppText.caption.copyWith(color: c.inkMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          step(
+            arrow,
+            -6,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Icon(Icons.arrow_downward, size: 22, color: c.primary),
+            ),
+          ),
+          step(
+            form,
+            10,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(18)),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(color: c.surfaceMuted, shape: BoxShape.circle),
+                    child: Icon(Icons.shopping_basket_outlined, size: 20, color: c.ink),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Belanja Harian', style: AppText.bodyStrong.copyWith(fontSize: 14)),
+                        AnimatedSwitcher(
+                          duration: motion(context, const Duration(milliseconds: 250)),
+                          layoutBuilder: (current, previous) =>
+                              Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
+                          child: checked
+                              ? Text.rich(
+                                  key: const ValueKey('saved'),
+                                  TextSpan(
+                                    children: [
+                                      WidgetSpan(
+                                        alignment: PlaceholderAlignment.middle,
+                                        child: Padding(
+                                          padding: const EdgeInsets.only(right: 4),
+                                          child: Icon(Icons.check_circle, size: 14, color: c.primary),
+                                        ),
+                                      ),
+                                      const TextSpan(text: 'BCA · kamu cek, tersimpan'),
+                                    ],
+                                  ),
+                                  style: AppText.caption.copyWith(color: c.primary, fontWeight: FontWeight.w600),
+                                )
+                              : Text(
+                                  'BCA · perlu dicek',
+                                  key: const ValueKey('check'),
+                                  style: AppText.caption.copyWith(color: c.inkMuted),
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text('−${formatAmount(15000000)}', style: AppText.amount.copyWith(fontSize: 14)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotificationIntro extends StatelessWidget {
+  const _NotificationIntro({
+    required this.active,
+    required this.enabled,
+    required this.onBack,
+    required this.onNext,
+    required this.onLogin,
+  });
+
+  final bool active;
   final bool enabled;
   final VoidCallback onBack;
   final VoidCallback onNext;
@@ -464,7 +844,9 @@ class _NotificationIntro extends StatelessWidget {
             child: Icon(icon, size: 18, color: c.primary),
           ),
           const SizedBox(width: 12),
-          Expanded(child: Text(text, style: AppText.label.copyWith(fontSize: 14, height: 1.4, color: c.ink))),
+          Expanded(
+            child: Text(text, style: AppText.label.copyWith(fontSize: 14, height: 1.4, color: c.ink)),
+          ),
         ],
       ),
     );
@@ -477,95 +859,26 @@ class _NotificationIntro extends StatelessWidget {
               children: [
                 _Header(2, onBack: onBack, onSkip: onNext, onColor: false),
                 const SizedBox(height: 20),
-                Text(
-                  'Catat otomatis dari notifikasi bank',
-                  style: AppText.title.copyWith(fontSize: 30, height: 1.12, letterSpacing: -0.5),
+                _Entrance(
+                  active: active,
+                  child: Text(
+                    'Catat otomatis dari notifikasi bank',
+                    style: AppText.title.copyWith(fontSize: 30, height: 1.12, letterSpacing: -0.5),
+                  ),
                 ),
                 const SizedBox(height: 10),
-                Text(
-                  'Setiap ada transaksi di BCA, GoPay, DANA, dan lainnya, Cashflow menyiapkan catatannya. '
-                  'Kamu tinggal cek lalu simpan.',
-                  style: AppText.body.copyWith(height: 1.5, color: c.inkMuted),
+                _Entrance(
+                  active: active,
+                  delay: const Duration(milliseconds: 120),
+                  child: Text(
+                    'Setiap ada transaksi di BCA, GoPay, DANA, dan lainnya, Cashflow menyiapkan catatannya. '
+                    'Kamu tinggal cek lalu simpan.',
+                    style: AppText.body.copyWith(height: 1.5, color: c.inkMuted),
+                  ),
                 ),
                 const SizedBox(height: 22),
                 // Before and after, as drawn: a bank notification becomes a record waiting to be checked.
-                ExcludeSemantics(
-                  child: Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(color: c.primarySoft, borderRadius: BorderRadius.circular(26)),
-                    child: Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(18)),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 34,
-                                height: 34,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: c.surfaceMuted,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  'BCA',
-                                  style: AppText.caption.copyWith(fontSize: 10, fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'BCA mobile · sekarang',
-                                      style: AppText.label.copyWith(fontWeight: FontWeight.w600),
-                                    ),
-                                    Text(
-                                      'Transaksi debit Rp 150.000 QRIS ALFAMART KUNINGAN berhasil',
-                                      style: AppText.caption.copyWith(color: c.inkMuted),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Icon(Icons.arrow_downward, size: 22, color: c.primary),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(18)),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(color: c.surfaceMuted, shape: BoxShape.circle),
-                                child: Icon(Icons.shopping_basket_outlined, size: 20, color: c.ink),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Belanja Harian', style: AppText.bodyStrong.copyWith(fontSize: 14)),
-                                    Text('BCA · perlu dicek', style: AppText.caption.copyWith(color: c.inkMuted)),
-                                  ],
-                                ),
-                              ),
-                              Text('−${formatAmount(15000000)}', style: AppText.amount.copyWith(fontSize: 14)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                ExcludeSemantics(child: _NotificationDemo(active: active)),
                 const SizedBox(height: 22),
                 point(Icons.account_balance_outlined, 'Hanya notifikasi aplikasi bank dan e-wallet yang dibaca'),
                 point(Icons.lock_outline, 'Isi notifikasi tetap di HP ini, tidak dikirim ke server'),
@@ -619,6 +932,7 @@ class _NotificationIntro extends StatelessWidget {
 
 class _AccountsIntro extends StatelessWidget {
   const _AccountsIntro({
+    required this.active,
     required this.picked,
     required this.balances,
     required this.onToggle,
@@ -627,6 +941,7 @@ class _AccountsIntro extends StatelessWidget {
     required this.onLogin,
   });
 
+  final bool active;
   final List<String> picked;
   final Map<String, TextEditingController> balances;
   final ValueChanged<String> onToggle;
@@ -644,6 +959,8 @@ class _AccountsIntro extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final presets = {for (final p in accountPresets) p.provider: p};
+    // Chips arrive one after another, in reading order, the first time the page shows.
+    final order = {for (final (i, p) in accountPresets.indexed) p.provider: i};
     return SafeArea(
       child: Column(
         children: [
@@ -653,14 +970,21 @@ class _AccountsIntro extends StatelessWidget {
               children: [
                 _Header(3, onBack: onBack, onColor: false),
                 const SizedBox(height: 20),
-                Text(
-                  'Uangmu disimpan di mana saja?',
-                  style: AppText.title.copyWith(fontSize: 30, height: 1.12, letterSpacing: -0.5),
+                _Entrance(
+                  active: active,
+                  child: Text(
+                    'Uangmu disimpan di mana saja?',
+                    style: AppText.title.copyWith(fontSize: 30, height: 1.12, letterSpacing: -0.5),
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  'Pilih semua yang kamu pakai. Bisa ditambah atau diubah nanti.',
-                  style: AppText.body.copyWith(height: 1.5, color: c.inkMuted),
+                _Entrance(
+                  active: active,
+                  delay: const Duration(milliseconds: 120),
+                  child: Text(
+                    'Pilih semua yang kamu pakai. Bisa ditambah atau diubah nanti.',
+                    style: AppText.body.copyWith(height: 1.5, color: c.inkMuted),
+                  ),
                 ),
                 for (final (title, types) in _groups) ...[
                   const SizedBox(height: 20),
@@ -671,83 +995,38 @@ class _AccountsIntro extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       for (final p in accountPresets.where((p) => types.contains(p.type)))
-                        FilterChip(
-                          label: Text(p.name),
-                          selected: picked.contains(p.provider),
-                          onSelected: (_) => onToggle(p.provider),
-                          checkmarkColor: c.onPrimary,
-                          labelStyle: AppText.label.copyWith(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: picked.contains(p.provider) ? c.onPrimary : c.ink,
+                        _Entrance(
+                          active: active,
+                          delay: Duration(milliseconds: 200 + 35 * order[p.provider]!),
+                          child: FilterChip(
+                            label: Text(p.name),
+                            selected: picked.contains(p.provider),
+                            onSelected: (_) {
+                              haptic(Haptic.tick);
+                              onToggle(p.provider);
+                            },
+                            checkmarkColor: c.onPrimary,
+                            labelStyle: AppText.label.copyWith(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: picked.contains(p.provider) ? c.onPrimary : c.ink,
+                            ),
                           ),
                         ),
                     ],
                   ),
                 ],
-                if (picked.isNotEmpty) ...[
-                  const SizedBox(height: 20),
-                  Text('Saldo sekarang (opsional)', style: AppText.label.copyWith(color: c.inkMuted)),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(AppRadius.card)),
-                    child: Column(
-                      children: [
-                        for (final (i, provider) in picked.indexed) ...[
-                          if (i > 0) const Divider(),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(minHeight: 60),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        presets[provider]!.name,
-                                        style: AppText.body.copyWith(fontWeight: FontWeight.w500),
-                                      ),
-                                      if (presets[provider]!.type == 'paylater')
-                                        Text('sisa tagihan', style: AppText.caption.copyWith(color: c.inkMuted)),
-                                    ],
-                                  ),
-                                ),
-                                Text('Rp', style: AppText.label.copyWith(fontSize: 14, color: c.inkMuted)),
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  width: 130,
-                                  child: TextField(
-                                    controller: balances.putIfAbsent(provider, TextEditingController.new),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    inputFormatters: const [AmountInputFormatter()],
-                                    textAlign: TextAlign.right,
-                                    style: AppText.body.copyWith(fontWeight: FontWeight.w500),
-                                    decoration: InputDecoration(
-                                      hintText: '0',
-                                      fillColor: c.bg,
-                                      isDense: true,
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: BorderSide.none,
-                                      ),
-                                      enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: BorderSide.none,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+                // The balance rows grow and shrink with the picks instead of jumping. AnimatedSize
+                // asserts on a zero duration, so with animations removed the rows simply appear.
+                if (MediaQuery.disableAnimationsOf(context))
+                  if (picked.isNotEmpty) _balanceRows(c, presets) else const SizedBox.shrink()
+                else
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                    alignment: Alignment.topCenter,
+                    child: picked.isEmpty ? const SizedBox(width: double.infinity) : _balanceRows(c, presets),
                   ),
-                ],
               ],
             ),
           ),
@@ -762,7 +1041,13 @@ class _AccountsIntro extends StatelessWidget {
                     minimumSize: const Size.fromHeight(58),
                     textStyle: AppText.button.copyWith(fontSize: 17),
                   ),
-                  child: Text(picked.isEmpty ? 'Daftar' : 'Daftar, ${picked.length} akun'),
+                  child: AnimatedSwitcher(
+                    duration: motion(context, const Duration(milliseconds: 200)),
+                    child: Text(
+                      picked.isEmpty ? 'Daftar' : 'Daftar, ${picked.length} akun',
+                      key: ValueKey(picked.length),
+                    ),
+                  ),
                 ),
                 _LoginLink(onTap: onLogin, color: c.primary, muted: c.inkMuted),
               ],
@@ -772,4 +1057,68 @@ class _AccountsIntro extends StatelessWidget {
       ),
     );
   }
+
+  Widget _balanceRows(AppColors c, Map<String, ({String provider, String name, String type})> presets) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const SizedBox(height: 20),
+      Text('Saldo sekarang (opsional)', style: AppText.label.copyWith(color: c.inkMuted)),
+      const SizedBox(height: 10),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(AppRadius.card)),
+        child: Column(
+          children: [
+            for (final (i, provider) in picked.indexed) ...[
+              if (i > 0) const Divider(),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 60),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(presets[provider]!.name, style: AppText.body.copyWith(fontWeight: FontWeight.w500)),
+                          if (presets[provider]!.type == 'paylater')
+                            Text('sisa tagihan', style: AppText.caption.copyWith(color: c.inkMuted)),
+                        ],
+                      ),
+                    ),
+                    Text('Rp', style: AppText.label.copyWith(fontSize: 14, color: c.inkMuted)),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 130,
+                      child: TextField(
+                        controller: balances.putIfAbsent(provider, TextEditingController.new),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: const [AmountInputFormatter()],
+                        textAlign: TextAlign.right,
+                        style: AppText.body.copyWith(fontWeight: FontWeight.w500),
+                        decoration: InputDecoration(
+                          hintText: '0',
+                          fillColor: c.bg,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    ],
+  );
 }
