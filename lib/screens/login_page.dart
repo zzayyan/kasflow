@@ -25,7 +25,7 @@ class _LoginPageState extends State<LoginPage> {
   final _name = TextEditingController();
   final _email = TextEditingController();
   final _password = TextEditingController();
-  bool _busy = false;
+  String? _busy; // 'form' or 'google': the button that started the request shows the spinner
   bool _showPassword = false;
   String? _confirmEmail; // set once sign-up has sent a confirmation link; the page waits for the sign-in
 
@@ -48,6 +48,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _submit() async {
+    if (_busy != null) return; // the keyboard's done key still submits while a request runs
     final email = _email.text.trim();
     final password = _password.text;
     // Without this, an empty email reaches Supabase as an anonymous sign-up ("Anonymous sign-ins are disabled").
@@ -57,7 +58,7 @@ class _LoginPageState extends State<LoginPage> {
     // New passwords need 8; signing in accepts whatever an older account was made with.
     if (_signUp && password.length < 8) return showMessage(context, 'Password minimal 8 karakter.');
     if (!_signUp && password.isEmpty) return showMessage(context, 'Isi password.');
-    setState(() => _busy = true);
+    setState(() => _busy = 'form');
     try {
       if (_signUp) {
         final name = _name.text.trim();
@@ -83,25 +84,48 @@ class _LoginPageState extends State<LoginPage> {
         await _finish((await supabase.auth.signInWithPassword(email: email, password: password)).user);
       }
     } on AuthException catch (e) {
-      if (mounted) showMessage(context, e.message);
+      _authError(e, email);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busy = null);
     }
+  }
+
+  /// Supabase's messages are English and name no way out; these say what to do next.
+  void _authError(AuthException e, [String? email]) {
+    if (!mounted) return;
+    switch (e.code) {
+      case 'invalid_credentials':
+        return showMessage(context, 'Email atau password salah. Periksa lagi, lalu coba masuk.');
+      case 'user_already_exists' || 'email_exists':
+        setState(() => _signUp = false); // keeps what was typed, so signing in is one tap
+        return showMessage(context, 'Email ini sudah terdaftar. Masuk dengan password-nya.');
+      case 'email_not_confirmed':
+        setState(() => _confirmEmail = email);
+        return showMessage(context, 'Email belum dikonfirmasi. Buka link di email, lalu masuk lagi.');
+      case 'weak_password':
+        return showMessage(context, 'Password terlalu mudah ditebak. Coba yang lebih panjang.');
+      case 'over_request_rate_limit' || 'over_email_send_rate_limit':
+        return showMessage(context, 'Terlalu banyak percobaan. Tunggu beberapa menit, lalu coba lagi.');
+    }
+    if (e is AuthRetryableFetchException) {
+      return showMessage(context, 'Tidak bisa terhubung. Periksa internet, lalu coba lagi.');
+    }
+    showMessage(context, e.message);
   }
 
   Future<void> _google() async {
     haptic(Haptic.click);
-    setState(() => _busy = true);
+    setState(() => _busy = 'google');
     try {
       final user = await signInWithGoogle();
       if (user == null) return; // picker canceled
       await _finish(user); // Google may resolve to an existing user, whom _isNew tells apart
     } on AuthException catch (e) {
-      if (mounted) showMessage(context, e.message);
+      _authError(e);
     } on GoogleSignInException {
       if (mounted) showMessage(context, 'Tidak bisa masuk dengan Google. Coba lagi.');
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busy = null);
     }
   }
 
@@ -202,6 +226,7 @@ class _LoginPageState extends State<LoginPage> {
                               TextField(
                                 controller: _name,
                                 textCapitalization: TextCapitalization.words,
+                                textInputAction: TextInputAction.next,
                                 autofillHints: const [AutofillHints.nickname],
                                 decoration: const InputDecoration(hintText: 'contoh: Zayyan'),
                               ),
@@ -212,6 +237,8 @@ class _LoginPageState extends State<LoginPage> {
                             TextField(
                               controller: _email,
                               keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              autocorrect: false,
                               autofillHints: const [AutofillHints.email],
                               decoration: const InputDecoration(hintText: 'nama@email.com'),
                             ),
@@ -222,6 +249,9 @@ class _LoginPageState extends State<LoginPage> {
                             TextField(
                               controller: _password,
                               obscureText: !_showPassword,
+                              autocorrect: false, // also once the password is shown
+                              enableSuggestions: false,
+                              textInputAction: TextInputAction.done,
                               autofillHints: [_signUp ? AutofillHints.newPassword : AutofillHints.password],
                               onSubmitted: (_) => _submit(),
                               decoration: InputDecoration(
@@ -242,12 +272,12 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 8),
                     FilledButton(
-                      onPressed: _busy ? null : _submit,
+                      onPressed: _busy != null ? null : _submit,
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(58),
                         textStyle: AppText.button.copyWith(fontSize: 17),
                       ),
-                      child: _busy
+                      child: _busy == 'form'
                           ? SizedBox.square(
                               dimension: 22,
                               child: CircularProgressIndicator(strokeWidth: 2.4, color: c.onPrimary),
@@ -258,22 +288,28 @@ class _LoginPageState extends State<LoginPage> {
                       const SizedBox(height: 16),
                       Row(
                         children: [
-                          Expanded(child: Divider(color: c.divider)),
+                          // divider is drawn for rows on a card; on the page background it vanished
+                          Expanded(child: Divider(color: c.surfaceMuted)),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             child: Text('atau', style: AppText.caption.copyWith(color: c.inkMuted)),
                           ),
-                          Expanded(child: Divider(color: c.divider)),
+                          Expanded(child: Divider(color: c.surfaceMuted)),
                         ],
                       ),
                       const SizedBox(height: 16),
                       OutlinedButton(
-                        onPressed: _busy ? null : _google,
+                        onPressed: _busy != null ? null : _google,
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size.fromHeight(58),
                           textStyle: AppText.button.copyWith(fontSize: 17),
                         ),
-                        child: const Text('Lanjut dengan Google'),
+                        child: _busy == 'google'
+                            ? SizedBox.square(
+                                dimension: 22,
+                                child: CircularProgressIndicator(strokeWidth: 2.4, color: c.ink),
+                              )
+                            : const Text('Lanjut dengan Google'),
                       ),
                     ],
                     const SizedBox(height: 12),
