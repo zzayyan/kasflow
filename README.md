@@ -29,8 +29,10 @@ notification do it. Then it shows where the money went and whether the month is 
 
 **Capture**
 - Quick input: type `kopi 18rb pakai gopay` and get the amount, category, and account filled in.
-- Bank and e-wallet notifications (BCA, GoPay, DANA, and more) become transactions waiting for a
-  tap. Names, account numbers, and emails are redacted on the phone before any text reaches the AI.
+- Bank and e-wallet notifications (BCA, GoPay, DANA, and more) become transactions. Home shows how
+  many wait under **Perlu dicek** ("to check"). There, swipe one right to save it or left to ignore
+  it, or tap it to fix the category or account first. Names, account numbers, and emails are redacted on the phone before
+  any text reaches the AI.
 - Scan a receipt photo into a transaction with its line items.
 - Home-screen widget with today's allowance, and an app shortcut straight to quick input.
 
@@ -59,8 +61,8 @@ notification do it. Then it shows where the money went and whether the month is 
     <td><img src="docs/readme/rencana-light.png" alt="Plans" width="200"></td>
   </tr>
   <tr>
-    <td align="center">Home</td>
-    <td align="center">Transactions</td>
+    <td align="center">Home, with notifications to check</td>
+    <td align="center">Transactions and Perlu dicek</td>
     <td align="center">Bills, budgets, goals</td>
   </tr>
   <tr>

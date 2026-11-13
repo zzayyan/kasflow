@@ -144,6 +144,17 @@ Future<void> _seed() async {
     });
   }
   await row('prefs', {'id': 'home_budget', 'value': 'b-bulanan'});
+  // Read from bank and e-wallet notifications, waiting under "perlu dicek".
+  for (final (i, provider, title, text, rupiah, type, minutesAgo) in [
+    (0, 'gopay', 'Kedai Kopi Senja', 'Kamu bayar Rp32.000 ke Kedai Kopi Senja', 32000, 'expense', 25),
+    (1, 'bca', 'Warung Makan Bu Sri', 'Pembayaran QRIS Rp45.000 berhasil', 45000, 'expense', 140),
+    (2, 'dana', 'Transfer dari Rina', 'Kamu menerima Rp150.000 dari Rina', 150000, 'income', 300),
+  ]) {
+    await row('inbox', {
+      'id': 'n$i', 'ref': 'demo-$i', 'package': 'demo', 'provider': provider, 'title': title, 'text': text,
+      'amount': _rp(rupiah), 'type': type, 'posted_at': _iso(_now.subtract(Duration(minutes: minutesAgo))),
+    });
+  }
   // Nothing waits to upload, so the sync button shows no pending badge.
   for (var tx = await db.getNextCrudTransaction(); tx != null; tx = await db.getNextCrudTransaction()) {
     await tx.complete();
