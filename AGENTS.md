@@ -49,7 +49,7 @@ For a library or SDK question (Flutter, PowerSync, Supabase), look up current do
 ## Device builds
 
 - The owner uses the app daily on their phone (Galaxy A54). After any device check, leave a release build installed. Debug builds stutter (600-800 ms frames), and the owner reads that as lag.
-- Use the release commands in `README.md` exactly, with `--split-per-abi`. That build has versionCode 2001; a plain `--release` build has versionCode 1 and fails with `INSTALL_FAILED_VERSION_DOWNGRADE`.
+- Use the release commands in `README.md` exactly, with `--split-per-abi`. That build's versionCode is 2000 plus the build number in `pubspec.yaml` (`+2` gives 2002); a plain `--release` build has just the build number and fails with `INSTALL_FAILED_VERSION_DOWNGRADE`.
 - Always update in place with `adb install -r`. The phone holds the owner's real data, and uninstalling wipes it.
 - The phone is often in the owner's hand, in another app. Before each `adb shell input` tap, take a screenshot and confirm it shows the screen the tap is meant for, not only that Kasflow holds focus (`adb shell dumpsys window | grep mCurrentFocus`). A tap aimed at one screen can land on another: on the home screen it opens whatever app sits there, and in Kasflow it can reach Profil's Keluar.
 - `adb` is not on PATH. On Windows, call `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`.
