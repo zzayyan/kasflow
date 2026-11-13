@@ -44,6 +44,7 @@ For a library or SDK question (Flutter, PowerSync, Supabase), look up current do
 - Tap feedback goes through `haptic()` in `lib/ui.dart`. The owner keeps Android's system touch vibration off, which silences Flutter's `HapticFeedback`; `haptic()` plays on the vibrator through `MainActivity.kt`, behind the app's own "Getar saat mengetuk" toggle. Every `onLongPress` starts with `haptic(Haptic.click)`, so a hold always answers before its menu or dialog opens.
 - Animation durations go through `motion()`, which turns them to zero when Android's "remove animations" setting is on.
 - UI copy is Indonesian. Code, comments, and commit messages are English.
+- The README images in `docs/readme/` come from `screenshots/readme_test.dart`, which renders the screens from made-up data. After changing a screen that appears in them, rerun `flutter test screenshots --update-goldens`. Never use screenshots from the owner's phone: it holds their real finances.
 
 ## Device builds
 

@@ -111,6 +111,7 @@ Quick input, notification capture, receipt scans, and Diagnosis CFO call the Edg
 as a secret and deploy the functions:
 
 ```sh
+npx supabase login
 npx supabase secrets set GEMINI_API_KEY=<your key> --remote=<ref>
 npx supabase functions deploy --remote=<ref>
 ```

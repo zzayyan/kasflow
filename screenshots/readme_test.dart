@@ -271,7 +271,7 @@ void main() {
       final context = tester.element(find.byType(_Hero));
       await tester.runAsync(() => Future.wait([for (final s in shots) precacheImage(s, context)]));
       await tester.pump();
-      await expectLater(find.byType(_Hero), matchesGoldenFile('../docs/readme/hero-${brightness.name}.png'));
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('../docs/readme/hero-${brightness.name}.png'));
     });
   }
 }
