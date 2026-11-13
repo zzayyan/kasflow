@@ -3,20 +3,20 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/readme/hero-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/readme/hero-light.png">
-  <img src="docs/readme/hero-light.png" alt="Flowku: track every rupiah in seconds" width="100%">
+  <img src="docs/readme/hero-light.png" alt="Kasflow: track every rupiah in seconds" width="100%">
 </picture>
 
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-1E4A35?style=flat-square" alt="GPL-3.0"></a>
-<a href="https://github.com/zzayyan/flowku/actions/workflows/checks.yml"><img src="https://img.shields.io/github/actions/workflow/status/zzayyan/flowku/checks.yml?branch=main&label=checks&style=flat-square" alt="Checks"></a>
+<a href="https://github.com/zzayyan/kasflow/actions/workflows/checks.yml"><img src="https://img.shields.io/github/actions/workflow/status/zzayyan/kasflow/checks.yml?branch=main&label=checks&style=flat-square" alt="Checks"></a>
 <img src="https://img.shields.io/badge/platform-Android-1E4A35?style=flat-square&logo=android&logoColor=white" alt="Android">
 <img src="https://img.shields.io/badge/Flutter-3.47-1E4A35?style=flat-square&logo=flutter&logoColor=white" alt="Flutter 3.47">
 
 </div>
 
-## Why Flowku
+## Why Kasflow
 
 Most money apps only work if you keep feeding them, and every extra tap is a reason to stop.
-Flowku keeps recording down to a few seconds: type one sentence, snap a receipt, or let your bank's
+Kasflow keeps recording down to a few seconds: type one sentence, snap a receipt, or let your bank's
 notification do it. Then it shows where the money went and whether the month is on track.
 
 - **Offline-first.** Your data lives in SQLite on the phone and syncs to your own Supabase project
@@ -88,7 +88,7 @@ The screenshots show made-up data. `screenshots/readme_test.dart` renders them, 
 
 ## Getting started
 
-Flowku runs on your own backend: a free Supabase project and a free PowerSync instance.
+Kasflow runs on your own backend: a free Supabase project and a free PowerSync instance.
 
 1. Install Flutter and connect an Android phone with USB debugging (`flutter devices` should list it).
 2. Connect the backend: run `./scripts/setup-backend.sh` in Git Bash. It walks through Supabase and PowerSync and writes `.env` (template: `.env.example`).

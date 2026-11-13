@@ -199,7 +199,7 @@ void main() {
   setUpAll(() async {
     await _loadFonts();
     await initializeDateFormatting('id_ID');
-    final dir = await Directory.systemTemp.createTemp('flowku-readme');
+    final dir = await Directory.systemTemp.createTemp('kasflow-readme');
     db = PowerSyncDatabase(schema: schema, path: '${dir.path}/readme.db');
     await db.initialize();
     await _seed();
@@ -323,7 +323,7 @@ class _Hero extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Flowku', style: AppText.title.copyWith(fontSize: 76, height: 1, color: c.ink)),
+                Text('Kasflow', style: AppText.title.copyWith(fontSize: 76, height: 1, color: c.ink)),
                 const SizedBox(height: 20),
                 Text(
                   'Track every rupiah in seconds. A personal finance app for Android that works offline.',

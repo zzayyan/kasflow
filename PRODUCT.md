@@ -14,7 +14,7 @@ Confirmed: the owner is the primary user today. A public Play Store release is p
 
 ## Product Purpose
 
-Flowku is a personal finance app for Android (Flutter). It lets one person capture transactions with little effort, keep accounts, categories, labels, bills, and plans in order, read reports, and get an AI assessment of their finances. Success: the owner records transactions as a habit and trusts the numbers.
+Kasflow is a personal finance app for Android (Flutter). It lets one person capture transactions with little effort, keep accounts, categories, labels, bills, and plans in order, read reports, and get an AI assessment of their finances. Success: the owner records transactions as a habit and trusts the numbers.
 
 ## Positioning
 

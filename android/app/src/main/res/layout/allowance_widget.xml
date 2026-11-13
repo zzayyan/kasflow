@@ -46,7 +46,7 @@
             android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:maxLines="1"
-            android:text="Buka Flowku sekali untuk memuat jatah"
+            android:text="Buka Kasflow sekali untuk memuat jatah"
             android:textColor="@color/widget_on_hero_muted"
             android:textSize="12sp" />
     </LinearLayout>

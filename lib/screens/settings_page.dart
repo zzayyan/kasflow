@@ -85,7 +85,7 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
 
   /// Turning the lock on or off asks for the fingerprint first, so nobody else can drop it.
   Future<void> _setLock(bool on) async {
-    final ok = await confirmOwner(on ? 'Nyalakan kunci Flowku' : 'Matikan kunci Flowku');
+    final ok = await confirmOwner(on ? 'Nyalakan kunci Kasflow' : 'Matikan kunci Kasflow');
     if (ok == null && mounted) showMessage(context, 'Pasang sidik jari atau kunci layar di pengaturan HP dulu.');
     if (ok != true) return; // cancelled: nothing to say
     haptic(Haptic.click);
