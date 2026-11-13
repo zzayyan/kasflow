@@ -1,4 +1,4 @@
-# Cashflow
+# Flowku
 
 Personal finance app for Android (Flutter). Offline-first: data lives in on-device SQLite and syncs to Supabase through PowerSync.
 

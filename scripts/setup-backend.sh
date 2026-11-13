@@ -218,7 +218,7 @@ cd "$(dirname "$0")/.."   # repo root, so .env and the SQL/YAML paths resolve
 
 TOTAL_STAGES=7
 
-banner "Setup backend Cashflow: Supabase + PowerSync"
+banner "Setup backend Flowku: Supabase + PowerSync"
 
 # ── 1 ────────────────────────────────────────────────────────────────────
 stage "Supabase: project ref dan publishable key"

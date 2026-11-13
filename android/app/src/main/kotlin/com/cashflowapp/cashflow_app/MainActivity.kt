@@ -66,7 +66,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     // The app's own tap feedback (lib/ui.dart haptic). View.performHapticFeedback obeys the system
     // touch-vibration switch, which many people turn off for the keyboard; a vibration of usage
-    // UNKNOWN does not, so Cashflow's own toggle in Pengaturan decides instead.
+    // UNKNOWN does not, so Flowku's own toggle in Pengaturan decides instead.
     private fun haptic(kind: String) {
         val vibrator = if (Build.VERSION.SDK_INT >= 31) {
             (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator

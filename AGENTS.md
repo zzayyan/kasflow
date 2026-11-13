@@ -32,6 +32,7 @@ For a library or SDK question (Flutter, PowerSync, Supabase), look up current do
 ## Scope
 
 - Android-only personal finance app. Screens are phone-sized; no web build is planned.
+- The app is named Flowku. The Android `applicationId`, the Kotlin package, and the Dart package keep the old `cashflow` names on purpose: a new `applicationId` is a different app to Android, so the owner's phone would lose its data.
 - Personal only: every row belongs to one `user_id`, with per-user RLS and PowerSync streams. Family or household features (shared accounts, members) will be a separate app, so keep them out of this one.
 
 ## Design
@@ -49,7 +50,7 @@ For a library or SDK question (Flutter, PowerSync, Supabase), look up current do
 - The owner uses the app daily on their phone (Galaxy A54). After any device check, leave a release build installed. Debug builds stutter (600-800 ms frames), and the owner reads that as lag.
 - Use the release commands in `README.md` exactly, with `--split-per-abi`. That build has versionCode 2001; a plain `--release` build has versionCode 1 and fails with `INSTALL_FAILED_VERSION_DOWNGRADE`.
 - Always update in place with `adb install -r`. The phone holds the owner's real data, and uninstalling wipes it.
-- The phone is often in the owner's hand, in another app. Before each `adb shell input` tap, take a screenshot and confirm it shows the screen the tap is meant for, not only that Cashflow holds focus (`adb shell dumpsys window | grep mCurrentFocus`). A tap aimed at one screen can land on another: on the home screen it opens whatever app sits there, and in Cashflow it can reach Profil's Keluar.
+- The phone is often in the owner's hand, in another app. Before each `adb shell input` tap, take a screenshot and confirm it shows the screen the tap is meant for, not only that Flowku holds focus (`adb shell dumpsys window | grep mCurrentFocus`). A tap aimed at one screen can land on another: on the home screen it opens whatever app sits there, and in Flowku it can reach Profil's Keluar.
 - `adb` is not on PATH. On Windows, call `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`.
 - The phone is paired for Wi-Fi debugging. If `adb devices` is empty, run `adb mdns services` to find the current connect port, then `adb connect <ip:port>`. The port changes when Wi-Fi debugging restarts.
 

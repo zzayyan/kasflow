@@ -970,7 +970,7 @@ class _NotificationIntro extends StatelessWidget {
       child: enabled
           ? step(
               null,
-              const Text('Cashflow sudah boleh membaca notifikasi'),
+              const Text('Flowku sudah boleh membaca notifikasi'),
               key: const ValueKey('on'),
               trailing: TextButton(
                 onPressed: openNotificationAccessSettings,
@@ -986,7 +986,7 @@ class _NotificationIntro extends StatelessWidget {
                 TextSpan(
                   children: [
                     TextSpan(text: 'Nyalakan '),
-                    TextSpan(text: 'Cashflow', style: TextStyle(fontWeight: FontWeight.w600)),
+                    TextSpan(text: 'Flowku', style: TextStyle(fontWeight: FontWeight.w600)),
                     TextSpan(text: ' di daftar Akses notifikasi, lalu kembali ke sini'),
                   ],
                 ),
@@ -1021,7 +1021,7 @@ class _NotificationIntro extends StatelessWidget {
                       active: active,
                       delay: const Duration(milliseconds: 120),
                       child: Text(
-                        'Setiap ada transaksi di BCA, GoPay, DANA, dan lainnya, Cashflow menyiapkan catatannya. '
+                        'Setiap ada transaksi di BCA, GoPay, DANA, dan lainnya, Flowku menyiapkan catatannya. '
                         'Kamu tinggal cek, lalu simpan.',
                         style: AppText.body.copyWith(height: 1.5, color: c.inkMuted),
                       ),
@@ -1029,7 +1029,7 @@ class _NotificationIntro extends StatelessWidget {
                     const SizedBox(height: 22),
                     ExcludeSemantics(child: _NotificationDemo(active: active)),
                     const SizedBox(height: 24),
-                    // Two things must be on, and only the first is Cashflow's to ask for: Android lets it
+                    // Two things must be on, and only the first is Flowku's to ask for: Android lets it
                     // read what other apps post, and the bank apps must post something to read.
                     Text('Cara mengaktifkan', style: AppText.bodyStrong),
                     const SizedBox(height: AppSpace.gap),

@@ -73,12 +73,12 @@ class AllowanceWidget : AppWidgetProvider() {
             var over = false
             val day = today()
             when {
-                d == null -> detail = "Buka Cashflow sekali untuk memuat jatah"
+                d == null -> detail = "Buka Flowku sekali untuk memuat jatah"
                 !d.has("name") -> {
                     title = "Atur budget untuk melihat jatah harian"
-                    detail = "Buka Rencana di Cashflow"
+                    detail = "Buka Rencana di Flowku"
                 }
-                day >= d.getLong("endDay") -> detail = "${d.getString("name")} · periode baru, buka Cashflow"
+                day >= d.getLong("endDay") -> detail = "${d.getString("name")} · periode baru, buka Flowku"
                 else -> {
                     val name = d.getString("name")
                     val limit = d.getLong("limit")

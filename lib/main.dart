@@ -59,7 +59,7 @@ class App extends StatelessWidget {
     return ValueListenableBuilder(
       valueListenable: themeMode,
       builder: (context, mode, _) => MaterialApp(
-        title: 'Cashflow',
+        title: 'Flowku',
         theme: buildAppTheme(Brightness.light),
         darkTheme: buildAppTheme(Brightness.dark),
         themeMode: mode,

@@ -8,7 +8,7 @@ import 'db.dart';
 import 'theme.dart';
 import 'ui.dart';
 
-// "Kunci dengan sidik jari": with it on, Cashflow opens behind a lock that the phone's fingerprint
+// "Kunci dengan sidik jari": with it on, Flowku opens behind a lock that the phone's fingerprint
 // (or its PIN, pattern or password) lifts.
 
 /// Pengaturan's switch (pref 'app_lock'); off unless turned on.
@@ -81,7 +81,7 @@ class _AppLockState extends State<AppLock> with WidgetsBindingObserver {
     if (_asking) return;
     _asking = true;
     // A phone whose screen lock was removed meanwhile cannot ask, so it opens.
-    final ok = await confirmOwner('Buka Cashflow') ?? true;
+    final ok = await confirmOwner('Buka Flowku') ?? true;
     _asking = false;
     if (ok && mounted) setState(() => _locked = false);
   }
@@ -118,7 +118,7 @@ class _LockScreen extends StatelessWidget {
                 child: Icon(Icons.lock_outline, size: 32, color: c.onHero),
               ),
               const SizedBox(height: 18),
-              Text('Cashflow terkunci', style: AppText.title.copyWith(fontSize: 20)),
+              Text('Flowku terkunci', style: AppText.title.copyWith(fontSize: 20)),
               const SizedBox(height: 6),
               Text(
                 'Buka dengan sidik jari atau kunci layar HP.',
