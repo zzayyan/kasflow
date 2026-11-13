@@ -8,7 +8,7 @@ Berikut detail transaksi kamu di BRImo:
 Total Transaksi
 23.000
 Tujuan
-Gultik Nih, ST BUDI
+Warung Sate Pak Darto
 QRIS Bayar
 9360000210000000000
 Nomor Referensi
@@ -22,7 +22,7 @@ NAMA PENGGUNA
 Jenis Transaksi
 QRIS Bayar
 Nama Merchant
-Gultik Nih, ST BUDI
+Warung Sate Pak Darto
 Catatan
 makan siang
 Nominal
@@ -40,7 +40,7 @@ void main() {
     expect(sent, isNot(contains('1234 **** **** 567')));
     expect(sent, isNot(contains('0812-12-14017')));
     expect(sent, isNot(contains('callbri@bri.co.id')));
-    expect(sent, allOf(contains('Total Transaksi\n23.000'), contains('Rp23.000'), contains('Gultik Nih, ST BUDI')));
+    expect(sent, allOf(contains('Total Transaksi\n23.000'), contains('Rp23.000'), contains('Warung Sate Pak Darto')));
     expect(sent, contains('05 Nov 2026, 12:00:17 WIB'));
   });
 
@@ -74,7 +74,7 @@ void main() {
       'is_transaction': true,
       'amount': 23000,
       'type': 'expense',
-      'payee': 'Gultik Nih, ST BUDI',
+      'payee': 'Warung Sate Pak Darto',
       'note': 'makan siang',
       'summary': 'Pembelian QRIS',
     };
@@ -83,7 +83,7 @@ void main() {
       expect(checkAnswer(answer, briQris), (
         amount: 2300000,
         type: 'expense',
-        title: 'Gultik Nih, ST BUDI · makan siang',
+        title: 'Warung Sate Pak Darto · makan siang',
         text: 'Pembelian QRIS',
       ));
     });
