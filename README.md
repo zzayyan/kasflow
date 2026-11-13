@@ -64,9 +64,9 @@ notification do it. Then it shows where the money went and whether the month is 
     <td align="center">Bills, budgets, goals</td>
   </tr>
   <tr>
-    <td><img src="docs/readme/laporan-dark.png" alt="Report" width="200"></td>
-    <td><img src="docs/readme/diagnosis-dark.png" alt="Diagnosis CFO" width="200"></td>
-    <td><img src="docs/readme/intro-dark.png" alt="Intro" width="200"></td>
+    <td><img src="docs/readme/laporan-light.png" alt="Report" width="200"></td>
+    <td><img src="docs/readme/diagnosis-light.png" alt="Diagnosis CFO" width="200"></td>
+    <td><img src="docs/readme/intro-light.png" alt="Intro" width="200"></td>
   </tr>
   <tr>
     <td align="center">Report</td>
