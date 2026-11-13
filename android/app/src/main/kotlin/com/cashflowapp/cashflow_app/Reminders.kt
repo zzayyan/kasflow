@@ -69,7 +69,7 @@ object Reminders {
         )
         manager.notify(
             "bill", id,
-            builder.setSmallIcon(R.mipmap.ic_launcher)
+            builder.setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setContentIntent(open)

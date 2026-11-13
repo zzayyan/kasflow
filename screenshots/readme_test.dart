@@ -260,6 +260,7 @@ void main() {
       final shots = [
         for (final name in ['transaksi', 'beranda', 'laporan'])
           MemoryImage(File('docs/readme/$name-${brightness.name}.png').readAsBytesSync()),
+        MemoryImage(File('docs/brand/kasflow-icon.png').readAsBytesSync()),
       ];
       await tester.pumpWidget(
         MaterialApp(
@@ -276,10 +277,10 @@ void main() {
   }
 }
 
-/// The README's banner: the name and what it does, beside three screens.
+/// The README's banner: the logo, name and what it does, beside three screens.
 class _Hero extends StatelessWidget {
   const _Hero(this.shots);
-  final List<ImageProvider> shots;
+  final List<ImageProvider> shots; // three screens, then the app icon
 
   @override
   Widget build(BuildContext context) {
@@ -323,6 +324,11 @@ class _Hero extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Image(image: shots[3], width: 96, height: 96),
+                ),
+                const SizedBox(height: 28),
                 Text('Kasflow', style: AppText.title.copyWith(fontSize: 76, height: 1, color: c.ink)),
                 const SizedBox(height: 20),
                 Text(
